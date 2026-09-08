@@ -10,6 +10,7 @@ namespace Antmicro.Renode.Peripherals.Tutorial
     {
         public PCF8574()
         {
+            // Create the eight numbered GPIO connectors.
             var pins = new Dictionary<int, IGPIO>();
             for(var pin = 0; pin < 8; pin++)
             {
@@ -22,15 +23,18 @@ namespace Antmicro.Renode.Peripherals.Tutorial
         // Renode uses these same GPIO objects for numbered outgoing REPL wires.
         public IReadOnlyDictionary<int, IGPIO> Connections { get; }
 
+        // Restore the peripheral's power-on latch state.
         public void Reset()
         {
             outputLatch = 0xFF;
             UpdatePinLevels();
         }
 
+        // II2CPeripheral requires Write, Read and FinishTransmission.
         public void Write(byte[] data)
         {
-            // Each data byte updates the port: TI datasheet, Write Mode diagram.
+            // Follow TI Rev. K Figure 7-3: each byte updates the port.
+            // Section 7.3.1 conflicts with that diagram; see the README note.
             foreach(var value in data)
             {
                 outputLatch = value;
@@ -53,6 +57,7 @@ namespace Antmicro.Renode.Peripherals.Tutorial
             // There is no register pointer or partial command to discard on STOP.
         }
 
+        // IGPIOReceiver requires OnGPIO to receive external pin changes.
         public void OnGPIO(int number, bool value)
         {
             if(number < 0 || number >= 8)
@@ -71,7 +76,11 @@ namespace Antmicro.Renode.Peripherals.Tutorial
             UpdatePinLevels();
         }
 
-        // Latch 0 forces low; latch 1 lets the external signal determine the level.
+        // Combine the master's command with the externally driven levels.
+        // Latch 0 actively pulls the pin low: 0 & external = 0.
+        // Latch 1 releases the pin: 1 & external = external.
+        // An external low can override a released pin, but an external high
+        // cannot override a latched low. AND models this digitally, not electrically.
         private byte EffectivePinLevels => (byte)(outputLatch & externalLevels);
 
         private void UpdatePinLevels()

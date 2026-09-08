@@ -2,7 +2,9 @@
 
 O Renode permite executar firmware com modelos de hardware prontos. Quando um periférico não está disponível, é possível implementar seu comportamento em C# e conectá-lo à plataforma simulada.
 
-Este tutorial cria um modelo do periférico **PCF8574, um expansor de oito entradas e saídas digitais controlado via I2C**. Ele permite ampliar os I/Os de um microcontrolador através do barramento I2C. O microcontrolador envia comandos para atuar nas saídas e lê o estado das entradas, como os LEDs e botões deste exemplo.
+Este tutorial cria um modelo do periférico **PCF8574, um expansor de oito entradas e saídas digitais controlado via I2C**. Ele permite ampliar os I/Os de um microcontrolador através do barramento I2C. O microcontrolador envia comandos para atuar nas saídas e lê o estado das entradas.
+
+O objetivo é didático: implementar uma versão básica a partir do datasheet, sem usar o código de uma implementação pronta como referência.
 
 Para testar o caso de uso, o **PCF8574 é conectado ao I2C de um STM32F407**. O firmware alterna quatro LEDs pelas saídas P0..P3 e imprime na UART as mudanças dos botões ligados a P4..P7. Ao final, um painel web permite observar os LEDs e acionar os botões, sem placa física.
 
@@ -76,9 +78,9 @@ O comportamento implementado segue este recorte do [datasheet TI PCF8574, revis�
 | Atualização por bytes sucessivos | Processar cada byte recebido | Figura 7-3 |
 | A2/A1/A0 em zero | Endereço I2C de sete bits `0x20` | Seção 7.3.3 |
 
-Não há registrador de direção: escrever um permite usar o pino como entrada. Neste modelo digital, o nível observado é `outputLatch & externalLevels`. Correntes e resistências não são simuladas.
+Não há registrador de direção: escrever `1` permite usar o pino como entrada. Neste modelo digital, o nível lógico observado é ditado no código pela operação `outputLatch & externalLevels`. Correntes, resistências, entre outras características elétricas não são simuladas.
 
-**Nota:** para bytes sucessivos, o modelo segue a figura 7-3; o texto da seção 7.3.1 diverge desse diagrama. O firmware deste exemplo envia um byte por transação.
+**Escritas sucessivas:** a seção 7.3.1 da datasheet afirma que bytes adicionais na mesma transação são ignorados, mas a figura 7-3 mostra dois bytes atualizando o port. O `foreach` abaixo adota o comportamento do diagrama; essa é uma escolha do modelo diante da divergência, não uma conclusão inequívoca do texto. O firmware envia um byte por transação. Transações separadas continuam podendo atualizar o port normalmente.
 
 Crie `models/PCF8574.cs`:
 
@@ -93,8 +95,16 @@ namespace Antmicro.Renode.Peripherals.Tutorial
 {
     public class PCF8574 : II2CPeripheral, IGPIOReceiver, INumberedGPIOOutput
     {
+        // Last command from the I2C master.
+        private byte outputLatch;
+        // External levels survive chip reset: a held button stays held.
+        private byte externalLevels = 0xFF;
+
+        public IReadOnlyDictionary<int, IGPIO> Connections { get; }
+
         public PCF8574()
         {
+            // Create the eight numbered GPIO connectors.
             var pins = new Dictionary<int, IGPIO>();
             for(var pin = 0; pin < 8; pin++)
             {
@@ -104,17 +114,19 @@ namespace Antmicro.Renode.Peripherals.Tutorial
             Reset();
         }
 
-        public IReadOnlyDictionary<int, IGPIO> Connections { get; }
 
+        // Restore the peripheral's power-on latch state.
         public void Reset()
         {
             outputLatch = 0xFF;
             UpdatePinLevels();
         }
 
+        // II2CPeripheral requires Write, Read and FinishTransmission.
         public void Write(byte[] data)
         {
-            // Every data byte updates the port, not just the first byte.
+            // Follow TI Rev. K Figure 7-3: each byte updates the port.
+            // Section 7.3.1 conflicts with that diagram; see the README note.
             foreach(var value in data)
             {
                 outputLatch = value;
@@ -137,6 +149,7 @@ namespace Antmicro.Renode.Peripherals.Tutorial
             // No register pointer or partial command to discard on STOP.
         }
 
+        // IGPIOReceiver requires OnGPIO to receive external pin changes.
         public void OnGPIO(int number, bool value)
         {
             if(number < 0 || number >= 8)
@@ -155,6 +168,11 @@ namespace Antmicro.Renode.Peripherals.Tutorial
             UpdatePinLevels();
         }
 
+        // Combine the master's command with the externally driven levels.
+        // Latch 0 actively pulls the pin low: 0 & external = 0.
+        // Latch 1 releases the pin: 1 & external = external.
+        // An external low can override a released pin, but an external high
+        // cannot override a latched low. AND models this digitally, not electrically.
         private byte EffectivePinLevels => (byte)(outputLatch & externalLevels);
 
         private void UpdatePinLevels()
@@ -165,27 +183,45 @@ namespace Antmicro.Renode.Peripherals.Tutorial
             }
         }
 
-        // Last command from the I2C master.
-        private byte outputLatch;
-        // External levels survive chip reset: a held button stays held.
-        private byte externalLevels = 0xFF;
     }
 }
 ```
 
-`II2CPeripheral` atende o barramento I2C; `IGPIOReceiver` recebe mudanças externas; `INumberedGPIOOutput` expõe os oito fios de saída. Esses contratos separam o [comportamento do periférico](https://renode.readthedocs.io/en/latest/advanced/writing-peripherals.html) das conexões da plataforma.
+`II2CPeripheral` atende o barramento I2C; `IGPIOReceiver` recebe mudanças externas dos botões; `INumberedGPIOOutput` expõe os oito conectores de saída, usados pelos LEDs neste exemplo. Esses contratos separam o [comportamento do periférico](https://renode.readthedocs.io/en/latest/advanced/writing-peripherals.html) das conexões da plataforma.
 
-O latch guarda o comando do mestre, enquanto `externalLevels` guarda o sinal externo. `OnGPIO` altera um bit desse sinal e `UpdatePinLevels` publica o resultado nos conectores. O reset não solta um botão que continua pressionado externamente.
+O latch guarda o comando do mestre (Nesse exemplo um STM32), enquanto `externalLevels` guarda o sinal externo. `OnGPIO` altera um bit desse sinal e `UpdatePinLevels` publica o resultado nos conectores. O reset não solta um botão que continua pressionado externamente.
 
-**Verificação de compilação, no Terminal:**
+**Verificação de compilação do PCF8574.cs, no Terminal:**
+
+Execute o Renode diretamente, a partir da pasta `meu-pcf8574`.
+
+**Windows / PowerShell:**
+
+```powershell
+& "C:/Program Files/Renode/renode.exe" --console --disable-gui --plain models/PCF8574.cs
+```
+
+**Linux ou Renode disponível no PATH:**
+
+```sh
+renode --console --disable-gui --plain models/PCF8574.cs
+```
+
+`--console` abre o Monitor no terminal, `--disable-gui` desativa a interface gráfica e `--plain` simplifica a apresentação. O arquivo passado no final é carregado na inicialização. Também é possível abrir o Renode sem esse argumento e executar no **Monitor**:
+
+```text
+include @models/PCF8574.cs
+```
+
+O Renode deve carregar `PCF8574.cs` e retornar ao prompt `(monitor)` sem erros de compilação. Digite `quit` para sair. Isso verifica a compilação; a próxima etapa instancia o dispositivo para verificar seu comportamento.
+
+**Atalho opcional do projeto:**
 
 ```sh
 python tools/lab.py --monitor --script models/PCF8574.cs
 ```
 
-O Renode deve mostrar o carregamento de `PCF8574.cs` e retornar ao prompt `(monitor)`, sem erros de compilação. Digite `quit` para sair. A próxima etapa instancia o dispositivo para verificar leituras e escritas.
-
-Se o executável não for encontrado, acrescente `--renode "C:/Program Files/Renode/renode.exe"` ao comando.
+O auxiliar executa o mesmo comando, acrescentando `--config <arquivo-temporario>` e isolando `TEMP`, `TMP` e `TMPDIR` para não depender da configuração pessoal. Ele não é necessário para compilar ou carregar modelos. Se não encontrar o executável, acrescente `--renode "C:/Program Files/Renode/renode.exe"` ao comando Python.
 
 ## 3. Conectar o modelo aos LEDs e botões
 
@@ -250,11 +286,15 @@ O `.repl` descreve os dispositivos e fios; o `.resc` executa comandos de configu
 
 ### Verificar leitura, escrita e fios
 
-**Terminal:**
+**Terminal**, usando o executável diretamente:
 
 ```sh
-python tools/lab.py --monitor --script scripts/platform.resc
+renode --console --disable-gui --plain scripts/platform.resc
 ```
+
+No PowerShell sem Renode no PATH, substitua `renode` por `& "C:/Program Files/Renode/renode.exe"`. Em um Monitor vazio, o comando equivalente é `include @scripts/platform.resc`. Use apenas uma dessas formas para carregar a sessão.
+
+Atalho opcional: `python tools/lab.py --monitor --script scripts/platform.resc`.
 
 **Monitor**, em sequência:
 
@@ -326,8 +366,10 @@ showAnalyzer sysbus.usart2
 **Terminal:**
 
 ```sh
-python tools/lab.py --monitor
+renode --console --disable-gui --plain scripts/demo.resc
 ```
+
+No PowerShell sem Renode no PATH, use `& "C:/Program Files/Renode/renode.exe"` no lugar de `renode`. Em um Monitor vazio, o equivalente é `include @scripts/demo.resc`. Atalho opcional: `python tools/lab.py --monitor`.
 
 **Monitor**, em uma sessão nova e sem executar `start` antes:
 
