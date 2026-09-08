@@ -1,0 +1,4 @@
+include @scripts/platform.resc
+sysbus LoadELF @firmware/demo.elf
+showAnalyzer sysbus.usart2
+# Type start in the interactive Monitor, or use the web launcher.

@@ -1,0 +1,6 @@
+using "platforms/cpus/stm32f4.repl"
+
+// Override the constructor attribute while the platform is being assembled.
+// This matches HCLK=168 MHz from the supplied CubeMX configuration.
+nvic:
+    systickFrequency: 168000000

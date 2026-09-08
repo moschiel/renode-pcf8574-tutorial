@@ -1,0 +1,36 @@
+// A2/A1/A0 = 0: 7-bit I2C address 0x20. Type prefix is relative to
+// Antmicro.Renode.Peripherals, hence Tutorial.PCF8574 in this platform file.
+pcf8574: Tutorial.PCF8574 @ i2c1 0x20
+    preinit:
+        include @models/PCF8574.cs
+    // Source index = Connections[index]; destination @0 = LED input number.
+    0 -> led0@0
+    1 -> led1@0
+    2 -> led2@0
+    3 -> led3@0
+
+// Active-low LEDs represent VCC -> resistor -> LED -> PCF8574 pin.
+// State=true means lit, even though the incoming GPIO level is false.
+// @ sysbus registers the object in the machine; no MMIO address is assigned.
+led0: Miscellaneous.LED @ sysbus
+    invert: true
+led1: Miscellaneous.LED @ sysbus
+    invert: true
+led2: Miscellaneous.LED @ sysbus
+    invert: true
+led3: Miscellaneous.LED @ sysbus
+    invert: true
+
+// A pressed button sends low to OnGPIO(4..7, false); released sends high.
+button4: Miscellaneous.Button @ sysbus
+    invert: true
+    -> pcf8574@4
+button5: Miscellaneous.Button @ sysbus
+    invert: true
+    -> pcf8574@5
+button6: Miscellaneous.Button @ sysbus
+    invert: true
+    -> pcf8574@6
+button7: Miscellaneous.Button @ sysbus
+    invert: true
+    -> pcf8574@7

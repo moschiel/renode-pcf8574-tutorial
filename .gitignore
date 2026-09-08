@@ -1,0 +1,9 @@
+__pycache__/
+*.pyc
+.venv/
+firmware/build/
+firmware/Debug/
+firmware/Release/
+firmware/.settings/
+output/
+.runtime/

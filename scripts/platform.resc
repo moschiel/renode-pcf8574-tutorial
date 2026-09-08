@@ -1,0 +1,5 @@
+mach create "pcf8574-lab"
+using sysbus
+machine LoadPlatformDescription @platforms/stm32.repl
+machine LoadPlatformDescription @platforms/pcf8574.repl
+cpu PerformanceInMips 100
