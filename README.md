@@ -8,6 +8,8 @@ O objetivo é didático: implementar uma versão básica a partir do datasheet, 
 
 Para testar o caso de uso, o **PCF8574 é conectado ao I2C de um STM32F407**. O firmware alterna quatro LEDs pelas saídas P0..P3 e imprime na UART as mudanças dos botões ligados a P4..P7. Ao final, um painel web permite observar os LEDs e acionar os botões, sem placa física.
 
+![Diagrama do modelo PCF8574 conectado ao STM32F407](figures/model.jpg)
+
 
 ```text
 STM32F407 --I2C1--> PCF8574 --P0..P3--> LEDs
