@@ -45,14 +45,33 @@ def check_model_monitor(work, executable, document):
     print('PASS tutorial standalone: no CPU or I2C master, button input, LED output and reset', flush=True)
 
 
+def check_stm32_monitor(executable, document):
+    from renode_client import Renode
+
+    blocks = re.findall(r'<!-- tutorial-stm32-monitor -->\s*```text\n(.*?)```',
+                        document, re.S)
+    commands = [line for block in blocks for line in block.strip().splitlines()]
+    assert len(commands) == 3, commands
+    with Renode(executable, firmware=False) as renode:
+        # The documented mach create selects a new machine, separate from the helper's initial one.
+        output = [renode.execute(command).strip() for command in commands]
+        topology = output[-1]
+        assert 'i2c1 (STM32F4_I2C)' in topology and 'pcf8574' not in topology, output
+        assert '<0x40005400, 0x400057FF>' in topology, output
+    print('PASS tutorial STM32 inspection: I2C1 exists without PCF8574', flush=True)
+
+
 def check_i2c_monitor(executable, document):
     from renode_client import Renode
 
-    commands = re.search(r'<!-- tutorial-i2c-monitor -->\s*```text\n(.*?)```',
-                         document, re.S).group(1).strip().splitlines()
+    blocks = re.findall(r'<!-- tutorial-i2c-monitor -->\s*```text\n(.*?)```',
+                        document, re.S)
+    commands = [line for block in blocks for line in block.strip().splitlines()]
+    assert len(commands) == 2, commands
     with Renode(executable, firmware=False) as renode:
         output = [renode.execute(command).strip() for command in commands]
         assert 'i2c1' in output[0] and 'pcf8574' in output[0], output
+        assert 'Address: 32' in output[0], output
         assert output[1] == '[255]', output
     print('PASS tutorial I2C: PCF8574 registered under STM32 I2C1 before firmware', flush=True)
 
@@ -148,6 +167,7 @@ def main():
         check_model_monitor(work, args.renode, document)
         # Section 4 adds the STM32 and moves the PCF8574 registration to I2C1.
         (work / 'platforms/stm32.repl').write_text(initial['platforms/stm32.repl'], encoding='utf-8')
+        check_stm32_monitor(args.renode, document)
         pcf = initial['platforms/pcf8574.repl']
         assert pcf.splitlines()[0] == 'pcf8574: Tutorial.PCF8574 @ sysbus'
         pcf = registration + '\n' + pcf.split('\n', 1)[1]

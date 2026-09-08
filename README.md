@@ -341,7 +341,7 @@ Avança **1 ms de tempo virtual** e para novamente. Esse avanço permite entrega
 python "print(list(dev.Read(1)))"
 ```
 
-A variável `dev` continua apontando para o mesmo PCF8574. **Esperado: `[239]`, equivalente a `0xEF` (`11101111` em binário)**: apenas P4 ficou baixo. O botão mudou `externalLevels`; o latch continua em `0xFF`.
+A variável `dev` continua apontando para o mesmo PCF8574. **Esperado: `[239]`, equivalente a `0xEF` (`11101111` em binário)**: apenas P4 ficou baixo. O botão mudou o valor da variável`externalLevels` do código C#; o latch continua em `0xFF`.
 
 **6. Soltar o botão e conferir a recuperação**
 
@@ -368,7 +368,7 @@ sysbus.led0 State
 
 **Saída esperada:** `[254]` e `True` após a escrita; `[255]` e `False` após o reset. O bit P0 baixo acende o LED0.
 
-Essas chamadas a `Read` e `Write` testam diretamente o modelo C#, não uma transação I2C. Digite `quit` antes de modificar a plataforma.
+Essas chamadas a `Read` e `Write` testam diretamente as funções do modelo C#, não são uma transação I2C. Digite `quit` antes de modificar a plataforma.
 
 ## 4. Conectar ao I2C do STM32
 
@@ -380,6 +380,48 @@ using "platforms/cpus/stm32f4.repl"
 ```
 
 Essa definição fornece a CPU e os periféricos internos do STM32, incluindo o controlador `i2c1`.
+
+### Consultar os periféricos disponíveis no STM32
+
+Antes de conectar o PCF8574, abra uma sessão vazia do Renode, no terminal e na raiz do tutorial:
+
+```sh
+renode --console --disable-gui --plain
+```
+
+No **Monitor**, crie uma máquina para inspecionar o STM32:
+
+<!-- tutorial-stm32-monitor -->
+```text
+mach create "stm32-inspect"
+```
+
+Carregue apenas a definição do STM32 que acabamos de criar, sem o PCF8574:
+
+<!-- tutorial-stm32-monitor -->
+```text
+machine LoadPlatformDescription @platforms/stm32.repl
+```
+
+Consulte os periféricos da máquina selecionada:
+
+<!-- tutorial-stm32-monitor -->
+```text
+peripherals
+```
+
+O comando mostra a árvore de dispositivos carregados nessa máquina, não um catálogo de todos os modelos disponíveis no Renode. Entre os periféricos do STM32, deve aparecer este trecho:
+
+```text
+i2c1 (STM32F4_I2C)
+    <0x40005400, 0x400057FF>
+```
+
+`i2c1` é o nome da instância do controlador I2C1 na definição importada; `STM32F4_I2C` é o tipo do modelo. Por isso podemos usar `i2c1` como destino da conexão do PCF8574. O intervalo mostrado corresponde aos registradores do controlador na memória do STM32, não ao endereço I2C do expansor.
+
+**Verificação:** `i2c1` deve existir, ainda sem `pcf8574` abaixo dele. Digite `quit` para encerrar essa sessão de inspeção antes de continuar.
+
+### Registrar o PCF8574 no controlador
 
 Em `platforms/pcf8574.repl`, troque **somente a primeira linha**, mantendo o `preinit` e todas as conexões de LEDs e botões:
 
@@ -411,15 +453,32 @@ cpu PerformanceInMips 100
 renode --console --disable-gui --plain scripts/platform.resc
 ```
 
-**Monitor:**
+No **Monitor**, consulte novamente a árvore de periféricos:
 
 <!-- tutorial-i2c-monitor -->
 ```text
 peripherals
+```
+
+**Saída esperada (trecho):** agora `pcf8574` aparece abaixo de `i2c1`, indicando que está registrado nesse controlador:
+
+```text
+i2c1 (STM32F4_I2C)
+    <0x40005400, 0x400057FF>
+    pcf8574 (PCF8574)
+        Address: 32
+```
+
+`Address: 32` mostra em decimal o endereço I2C `0x20` definido no REPL. Não confunda esse endereço com o intervalo de memória do controlador mostrado acima.
+
+Para consultar o estado inicial do expansor, use seu novo caminho na árvore:
+
+<!-- tutorial-i2c-monitor -->
+```text
 python "dev = monitor.Machine['sysbus.i2c1.pcf8574']; print(list(dev.Read(1)))"
 ```
 
-**Saída esperada:** a árvore de periféricos deve mostrar `pcf8574` sob `i2c1`, e a leitura deve retornar `[255]`. O caminho mudou de `sysbus.pcf8574` para `sysbus.i2c1.pcf8574`.
+**Saída esperada:** `[255]`. O caminho mudou de `sysbus.pcf8574` para `sysbus.i2c1.pcf8574`, acompanhando a nova conexão.
 
 Isso verifica a montagem da plataforma. A CPU ainda não executou firmware; a comunicação I2C pelo mestre será testada na próxima seção. Digite `quit`.
 
