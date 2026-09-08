@@ -400,7 +400,7 @@ Carregue apenas a definição do STM32 que acabamos de criar, sem o PCF8574:
 
 <!-- tutorial-stm32-monitor -->
 ```text
-machine LoadPlatformDescription @platforms/stm32.repl
+machine LoadPlatformDescription @platforms\stm32.repl
 ```
 
 Consulte os periféricos da máquina selecionada:
@@ -488,7 +488,115 @@ O firmware fornecido foi gerado a partir do STM32CubeMX para a placa **STM32F407
 
 A aplicação inicializa o port em `0xFF`, mantém P4..P7 liberados para entrada e alterna um LED a cada 250 ms, percorrendo P0..P3. A sequência acende P0, P1, P2, P3 e depois apaga P0, P1, P2, P3. Mudanças das entradas são impressas na USART2.
 
-Toda escrita usa `0xF0 | ledLevels`, preservando as entradas liberadas. O firmware não escreve de volta os bits lidos dos botões, o que poderia prender uma entrada em zero. A HAL recebe o endereço `0x20 << 1`; no REPL ele permanece `0x20`.
+Os trechos abaixo já fazem parte do [main.c](firmware/Core/Src/main.c) fornecido; não é necessário adicioná-los para executar o ELF do tutorial.
+
+### Usar os pinos como entradas e saídas
+
+Como implementamos na [seção 2](#2-implementar-o-pcf8574), o PCF8574 tem pinos **quase bidirecionais**, sem registrador de direção. Não há um comando separado para configurar `input` ou `output`:
+
+| Bit escrito no port | Efeito no pino | Uso neste firmware |
+| --- | --- | --- |
+| `0` | Força nível baixo | Acender um LED em P0..P3, ligado como ativo em nível baixo |
+| `1` | Libera o pino com pull-up fraco; um sinal externo pode levá-lo a zero | Apagar um LED ou permitir a leitura de um botão em P4..P7 |
+
+Portanto, escrever `1` não seleciona um modo exclusivo de entrada, nem produz uma saída alta forte. A função do pino depende também do circuito conectado. Esse é o comportamento da figura 7-2 do [datasheet](https://www.ti.com/lit/ds/symlink/pcf8574.pdf), representado no modelo por `outputLatch & externalLevels`.
+
+As constantes do firmware definem o endereço do expansor e quais bits devem permanecer liberados:
+
+<!-- tutorial-firmware-excerpt -->
+```c
+#define PCF_ADDRESS (0x20U << 1)
+#define INPUT_MASK 0xF0U
+```
+
+`INPUT_MASK` vale `11110000` em binário: mantém P4..P7 em `1` a cada escrita. P0..P3 recebem os níveis desejados dos LEDs. A HAL recebe o endereço de sete bits deslocado uma posição (`0x20 << 1`); no REPL, o endereço continua sendo `0x20`.
+
+### Inicializar e acessar o expansor por I2C
+
+A função `write_port` envia um byte pelo I2C1 do STM32:
+
+<!-- tutorial-firmware-excerpt -->
+```c
+static void write_port(uint8_t value)
+{
+    if(HAL_I2C_Master_Transmit(&hi2c1, PCF_ADDRESS, &value, 1, 100U) != HAL_OK)
+    {
+        fail("ERROR: PCF8574 write\r\n");
+    }
+}
+```
+
+O `1` é a quantidade de bytes, e `100U` é o timeout em milissegundos. Não enviamos um endereço de registrador: o byte representa os oito pinos. Na simulação, a transação passa pelo modelo do I2C1 e chega ao `Write` do PCF8574, que atualiza `outputLatch` e os conectores dos LEDs. Não é uma chamada direta do firmware ao código C#.
+
+Após inicializar I2C1 e USART2, `main` chama esta validação:
+
+<!-- tutorial-firmware-excerpt -->
+```c
+static void validate_pcf8574(void)
+{
+    // All LEDs off (active-low). P4..P7 remain released for button input.
+    write_port(0xFFU);
+    uint8_t observed = read_port();
+    // A held button is valid at boot, so do not compare the input bits to 1.
+    if((observed & 0x0FU) != 0x0FU) { fail("ERROR: output readback\r\n"); }
+    print_line("PCF8574 ready: P0..P3 LEDs; P4..P7 buttons\r\n");
+}
+```
+
+`0xFF` libera todos os pinos: os quatro LEDs começam apagados e os botões podem alterar os níveis de entrada. A conferência usa `0x0F` para verificar apenas P0..P3, pois um botão pressionado durante a inicialização pode legitimamente fazer P4..P7 retornar zero. `read_port` usa `HAL_I2C_Master_Receive` para receber um byte, chegando ao `Read` do modelo.
+
+### Alternar um LED a cada 250 ms
+
+Antes do `while`, o firmware prepara o estado dos LEDs e a referência de tempo:
+
+<!-- tutorial-firmware-excerpt -->
+```c
+uint8_t ledLevels = 0x0FU;
+uint8_t nextLed = 0U;
+uint8_t previousInputs = 0xFFU;  // Sentinel: also print the first sample.
+uint32_t lastToggle = HAL_GetTick();
+```
+
+Dentro do laço, este bloco alterna um único pino por intervalo:
+
+<!-- tutorial-firmware-excerpt -->
+```c
+if((uint32_t)(HAL_GetTick() - lastToggle) >= 250U)
+{
+    lastToggle += 250U;
+    // Toggle ONE pin per step: P0, P1, P2, P3, then repeat.
+    ledLevels ^= (uint8_t)(1U << nextLed);
+    nextLed = (uint8_t)((nextLed + 1U) % 4U);
+    // Never copy observed button lows back into the output latch.
+    write_port((uint8_t)(INPUT_MASK | ledLevels));
+}
+```
+
+O XOR (`^=`) inverte somente o bit do LED selecionado; o módulo `% 4` percorre P0, P1, P2 e P3 repetidamente. Os bytes escritos começam em `0xFF` e seguem `0xFE`, `0xFC`, `0xF8`, `0xF0`: um LED adicional acende a cada passo. Depois seguem `0xF1`, `0xF3`, `0xF7`, `0xFF`, apagando um por vez.
+
+O OR com `INPUT_MASK` preserva P4..P7 liberados, independentemente dos botões pressionados. **Não usamos a leitura do port como base da escrita:** copiar um zero observado em um botão para o latch faria o próprio PCF8574 manter esse pino baixo mesmo depois de soltar o botão.
+
+### Ler os botões e imprimir mudanças
+
+Também dentro do `while`, a leitura separa os quatro bits de entrada:
+
+<!-- tutorial-firmware-excerpt -->
+```c
+uint8_t inputs = (uint8_t)((read_port() >> 4) & 0x0FU);
+if(inputs != previousInputs)
+{
+    char message[48];
+    snprintf(message, sizeof(message), "INPUT P7..P4=0x%X\r\n", (unsigned)inputs);
+    print_line(message);
+    previousInputs = inputs;
+}
+```
+
+O deslocamento `>> 4` coloca P4..P7 nos quatro bits inferiores; a máscara `0x0F` mantém apenas esse grupo. `print_line` transmite pela USART2, e a comparação evita repetir mensagens enquanto as entradas não mudam. O valor inicial `previousInputs = 0xFF` garante que a primeira amostra seja impressa. O laço termina com `HAL_Delay(5U)`, permitindo consultar os botões entre as alternâncias dos LEDs, sem esperar 250 ms para cada leitura.
+
+Isso fecha o caminho apresentado na seção 2: pressionar um botão chama `OnGPIO`, que altera `externalLevels`; como o bit correspondente de `outputLatch` permanece em `1`, o `Read` retorna o nível externo. Solto, o botão é lido como `1`; pressionado, como `0`.
+
+**O que conferir ao executar abaixo:** sem botões pressionados, a UART deve mostrar `INPUT P7..P4=0xF`. Ao pressionar apenas P4, deve mostrar `0xE`; ao soltar, `0xF` novamente. Os LEDs devem continuar alternando independentemente dessas mudanças.
 
 ### Sobrescrever a configuração do SysTick
 
