@@ -61,7 +61,7 @@ Use `python3` no lugar de `python` nos próximos comandos, se necessário.
 
 </details>
 
-**Verificação:** `python --version` deve mostrar Python 3.10 ou superior; `python tools/lab.py --help` deve listar as opções `--monitor` e `--script`.
+**Verificação:** `renode --version` deve mostrar a versão instalada, e `python --version`, Python 3.10 ou superior. Os comandos abaixo usam `renode` disponível no PATH.
 
 Todos os caminhos seguintes são relativos à pasta **meu-pcf8574**. Comandos identificados como **Terminal** são executados no PowerShell ou Bash; comandos do **Monitor** são executados dentro do Renode.
 
@@ -195,14 +195,6 @@ O latch guarda o comando do mestre (Nesse exemplo um STM32), enquanto `externalL
 
 Execute o Renode diretamente, a partir da pasta `meu-pcf8574`.
 
-**Windows / PowerShell:**
-
-```powershell
-& "C:/Program Files/Renode/renode.exe" --console --disable-gui --plain models/PCF8574.cs
-```
-
-**Linux ou Renode disponível no PATH:**
-
 ```sh
 renode --console --disable-gui --plain models/PCF8574.cs
 ```
@@ -221,22 +213,19 @@ O Renode deve carregar `PCF8574.cs` e retornar ao prompt `(monitor)` sem erros d
 python tools/lab.py --monitor --script models/PCF8574.cs
 ```
 
-O auxiliar executa o mesmo comando, acrescentando `--config <arquivo-temporario>` e isolando `TEMP`, `TMP` e `TMPDIR` para não depender da configuração pessoal. Ele não é necessário para compilar ou carregar modelos. Se não encontrar o executável, acrescente `--renode "C:/Program Files/Renode/renode.exe"` ao comando Python.
+O auxiliar executa o mesmo comando, acrescentando `--config <arquivo-temporario>` e isolando `TEMP`, `TMP` e `TMPDIR` para não depender da configuração pessoal. Ele não é necessário para compilar ou carregar modelos.
 
-## 3. Conectar o modelo aos LEDs e botões
+## 3. Arquivos .repl/.resc, Conectando o modelo a LEDs e botões
 
-Crie `platforms/stm32.repl` para reutilizar a plataforma STM32F4 distribuída com o Renode:
+Um arquivo **`.repl` descreve uma plataforma do Renode**: quais modelos instanciar, seus parâmetros e suas conexões. Ele não contém firmware. Um arquivo `.resc`, por sua vez, reúne comandos do Monitor para montar e executar uma sessão.
 
-<!-- tutorial-file: platforms/stm32.repl -->
-```text
-using "platforms/cpus/stm32f4.repl"
-```
+Nesta etapa, a máquina terá **somente o PCF8574, quatro LEDs e quatro botões**, sem STM32, controlador I2C ou firmware.
 
 Crie `platforms/pcf8574.repl`:
 
 <!-- tutorial-file: platforms/pcf8574.repl -->
 ```text
-pcf8574: Tutorial.PCF8574 @ i2c1 0x20
+pcf8574: Tutorial.PCF8574 @ sysbus
     preinit:
         include @models/PCF8574.cs
     0 -> led0@0
@@ -267,42 +256,47 @@ button7: Miscellaneous.Button @ sysbus
     -> pcf8574@7
 ```
 
-`Tutorial.PCF8574 @ i2c1 0x20` instancia a classe no controlador I2C1. O `preinit` carrega o C#; `0 -> led0@0` liga a saída zero à entrada do LED.
+### O que cada declaração significa
 
-Os LEDs representam a ligação VCC, resistor, LED e pino do PCF: **nível baixo acende**, por isso `invert: true`. Nos botões, essa opção faz a pressão enviar zero e a liberação enviar um. `@ sysbus` registra esses objetos sem atribuir um endereço de memória.
+| Trecho | Significado |
+| --- | --- |
+| `pcf8574:` | Nome desta instância na plataforma |
+| `Tutorial.PCF8574` | Classe C# do modelo, relativa a `Antmicro.Renode.Peripherals` |
+| `@ sysbus` | Registra o objeto na máquina, sem endereço de memória nesta declaração |
+| `preinit: include @models/PCF8574.cs` | Carrega o código antes de criar a instância; `@` aqui identifica um caminho de arquivo |
+| `0 -> led0@0` | Liga `Connections[0]` do PCF à entrada zero do LED |
+| `-> pcf8574@4` | Liga a saída do botão ao pino P4, recebido por `OnGPIO(4, value)` |
 
-Crie `scripts/platform.resc`, responsável por montar a sessão:
+`sysbus` existe em toda máquina Renode; usá-lo aqui **não adiciona uma CPU nem cria uma conexão I2C**. O endereço I2C será definido na próxima etapa. A indentação agrupa os atributos de cada dispositivo; use espaços. Referência: [descrição de plataformas](https://renode.readthedocs.io/en/latest/basic/describing_platforms.html).
+
+Os LEDs representam VCC, resistor, LED e pino do PCF: **nível baixo acende**, por isso `invert: true`. Nos botões, essa opção faz a pressão enviar zero e a liberação enviar um.
+
+Crie `scripts/platform.resc`:
 
 <!-- tutorial-file: scripts/platform.resc -->
 ```text
 mach create "pcf8574-lab"
 using sysbus
-machine LoadPlatformDescription @platforms/stm32.repl
 machine LoadPlatformDescription @platforms/pcf8574.repl
-cpu PerformanceInMips 100
 ```
 
-O `.repl` descreve os dispositivos e fios; o `.resc` executa comandos de configuração. Referência: [formato de plataformas do Renode](https://renode.readthedocs.io/en/latest/advanced/platform_description_format.html).
+`mach create` cria a máquina; `using sysbus` permite abreviar os nomes no Monitor; `LoadPlatformDescription` monta os dispositivos e fios descritos no REPL.
 
-### Verificar leitura, escrita e fios
+### Verificar as entradas após reset
 
-**Terminal**, usando o executável diretamente:
+**Terminal:**
 
 ```sh
 renode --console --disable-gui --plain scripts/platform.resc
 ```
 
-No PowerShell sem Renode no PATH, substitua `renode` por `& "C:/Program Files/Renode/renode.exe"`. Em um Monitor vazio, o comando equivalente é `include @scripts/platform.resc`. Use apenas uma dessas formas para carregar a sessão.
-
-Atalho opcional: `python tools/lab.py --monitor --script scripts/platform.resc`.
+Após reset, o latch contém `0xFF`: todos os pinos estão liberados e podem ser usados como entradas. Não é necessário um mestre para que um botão altere o nível observado.
 
 **Monitor**, em sequência:
 
 <!-- tutorial-model-monitor -->
 ```text
-cpu IsHalted true
-python "from System import Array, Byte; dev = monitor.Machine['sysbus.i2c1.pcf8574']; print(list(dev.Read(1)))"
-python "dev.Write(Array[Byte]([0xFE])); print(list(dev.Read(1)))"
+python "dev = monitor.Machine['sysbus.pcf8574']; print(list(dev.Read(1)))"
 sysbus.led0 State
 sysbus.button4 Press
 emulation RunFor "0.001"
@@ -315,16 +309,82 @@ python "print(list(dev.Read(1)))"
 | Consulta | Saída esperada |
 | --- | --- |
 | Leitura inicial | `[255]` = `0xFF` |
-| Leitura após escrever `0xFE` | `[254]` = P0 baixo |
-| Estado do LED0 | `True` = aceso |
-| Leitura com P4 pressionado | `[238]` = `0xEE` |
-| Leitura após soltar P4 | `[254]` = `0xFE` |
+| LED0 após reset | `False` = apagado |
+| Leitura com P4 pressionado | `[239]` = `0xEF` |
+| Leitura após soltar P4 | `[255]` = `0xFF` |
 
-A CPU fica parada porque ainda não há firmware carregado. `RunFor` avança o tempo virtual para aplicar o evento do botão. Aqui as chamadas a `dev.Read` e `dev.Write` testam diretamente o modelo; a comunicação pelo controlador I2C será exercitada pelo firmware.
+O botão muda `externalLevels`; o latch continua em `0xFF`. `Read(1)` permite observar o resultado desse estado interno sem acessar campos privados. `RunFor` avança o tempo virtual para entregar o evento do botão, mesmo sem CPU.
 
-Digite `quit` antes da próxima etapa.
+### Verificar uma saída
 
-## 4. Executar o firmware STM32
+Na **mesma sessão do Monitor**, escreva diretamente no modelo e depois aplique reset:
+
+<!-- tutorial-output-monitor -->
+```text
+python "from System import Array, Byte; dev.Write(Array[Byte]([0xFE])); print(list(dev.Read(1)))"
+sysbus.led0 State
+python "dev.Reset(); print(list(dev.Read(1)))"
+sysbus.led0 State
+```
+
+**Saída esperada:** `[254]` e `True` após a escrita; `[255]` e `False` após o reset. O bit P0 baixo acende o LED0.
+
+Essas chamadas a `Read` e `Write` testam diretamente o modelo C#, não uma transação I2C. Digite `quit` antes de modificar a plataforma.
+
+## 4. Conectar ao I2C do STM32
+
+Crie `platforms/stm32.repl` para importar o STM32F4 distribuído com o Renode:
+
+<!-- tutorial-file: platforms/stm32.repl -->
+```text
+using "platforms/cpus/stm32f4.repl"
+```
+
+Essa definição fornece a CPU e os periféricos internos do STM32, incluindo o controlador `i2c1`.
+
+Em `platforms/pcf8574.repl`, troque **somente a primeira linha**, mantendo o `preinit` e todas as conexões de LEDs e botões:
+
+<!-- tutorial-registration: platforms/pcf8574.repl -->
+```text
+pcf8574: Tutorial.PCF8574 @ i2c1 0x20
+```
+
+Agora `@ i2c1` registra o PCF8574 como dispositivo no **controlador I2C1 do STM32**. `0x20` é o endereço I2C de sete bits escolhido para o PCF8574, correspondente aos pinos A2, A1 e A0 em zero. Não é um endereço da memória do STM32. Referência: seção 7.3.3 do [datasheet](https://www.ti.com/lit/ds/symlink/pcf8574.pdf).
+
+Atualize `scripts/platform.resc` para carregar o STM32 **antes** do PCF8574, pois `i2c1` precisa existir:
+
+<!-- tutorial-update: scripts/platform.resc -->
+```text
+mach create "pcf8574-lab"
+using sysbus
+machine LoadPlatformDescription @platforms/stm32.repl
+machine LoadPlatformDescription @platforms/pcf8574.repl
+cpu PerformanceInMips 100
+```
+
+`PerformanceInMips` configura a taxa de execução simulada da CPU; não é o clock do SysTick.
+
+### Verificar a conexão
+
+**Terminal:**
+
+```sh
+renode --console --disable-gui --plain scripts/platform.resc
+```
+
+**Monitor:**
+
+<!-- tutorial-i2c-monitor -->
+```text
+peripherals
+python "dev = monitor.Machine['sysbus.i2c1.pcf8574']; print(list(dev.Read(1)))"
+```
+
+**Saída esperada:** a árvore de periféricos deve mostrar `pcf8574` sob `i2c1`, e a leitura deve retornar `[255]`. O caminho mudou de `sysbus.pcf8574` para `sysbus.i2c1.pcf8574`.
+
+Isso verifica a montagem da plataforma. A CPU ainda não executou firmware; a comunicação I2C pelo mestre será testada na próxima seção. Digite `quit`.
+
+## 5. Executar o firmware STM32
 
 O firmware fornecido foi gerado a partir do STM32CubeMX para a placa **STM32F407G-DISC1**, MCU **STM32F407VGTx**, com HAL. O projeto completo está em [firmware](firmware), com o [arquivo CubeMX](firmware/pcf8574-demo.ioc) e o [main.c](firmware/Core/Src/main.c).
 
@@ -348,7 +408,7 @@ nvic:
 
 O `using` importa a definição original; o bloco `nvic:` sobrescreve apenas o atributo indicado do dispositivo já declarado nessa definição. Os demais atributos são preservados, sem editar os arquivos da instalação do Renode.
 
-Esse ajuste é aplicado durante a criação da plataforma. Encerre a sessão anterior e carregue uma nova após alterar o arquivo. Na seção 3, a CPU estava parada e o teste dos fios não dependia dessa frequência.
+Esse ajuste é aplicado durante a criação da plataforma. Encerre a sessão anterior e carregue uma nova após alterar o arquivo. Na seção 3 não havia CPU; na seção 4 ela ainda não executava firmware. Esses testes não dependiam dessa frequência.
 
 ### Carregar o binário
 
@@ -369,7 +429,7 @@ showAnalyzer sysbus.usart2
 renode --console --disable-gui --plain scripts/demo.resc
 ```
 
-No PowerShell sem Renode no PATH, use `& "C:/Program Files/Renode/renode.exe"` no lugar de `renode`. Em um Monitor vazio, o equivalente é `include @scripts/demo.resc`. Atalho opcional: `python tools/lab.py --monitor`.
+Em um Monitor vazio, o equivalente é `include @scripts/demo.resc`. Atalho opcional: `python tools/lab.py --monitor`.
 
 **Monitor**, em uma sessão nova e sem executar `start` antes:
 
@@ -403,7 +463,7 @@ No Bash: `cp "$referencia/firmware/Debug/pcf8574-demo.elf" firmware/demo.elf`. S
 
 O ELF incluído foi compilado com Arm GCC 14.3 pelo auxiliar [build_firmware.py](tools/build_firmware.py). A importação gráfica no CubeIDE ainda não foi validada neste projeto.
 
-## 5. Interagir pelo painel web
+## 6. Interagir pelo painel web
 
 Encerre o Monitor e execute no **Terminal**:
 
@@ -448,9 +508,9 @@ O modelo não implementa `INT`, correntes, curtos, temporização elétrica do I
 
 | Problema | Ajuste |
 | --- | --- |
-| Renode não encontrado | Acrescente `--renode "caminho/do/executavel"` ao comando Python |
+| Renode não encontrado | Adicione a instalação ao PATH. No PowerShell, a alternativa é `& "C:/Program Files/Renode/renode.exe"`; nos auxiliares Python, use `--renode "caminho/do/executavel"` |
 | Arquivo não encontrado | Execute na pasta `meu-pcf8574`; confira os nomes e extensões |
-| Avisos de `flash_controller`, `rcc` ou `SYSCFG` no boot | Ocorrem nesta plataforma com a inicialização HAL; confira as leituras, o LED e a UART descritos na etapa 4 |
+| Avisos de `flash_controller`, `rcc` ou `SYSCFG` no boot | Ocorrem nesta plataforma com a inicialização HAL; confira as leituras, o LED e a UART descritos na etapa 5 |
 | Porta 8000 ocupada | Use `python tools/lab.py --port 8001` |
 | Mudança no modelo ou ELF sem efeito | Encerre e abra uma nova sessão |
 | Botão sem efeito | Avance o tempo virtual e confira se P4..P7 estão liberados |

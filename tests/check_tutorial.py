@@ -29,12 +29,30 @@ def check_model_monitor(work, executable, document):
 
     commands = re.search(r'<!-- tutorial-model-monitor -->\s*```text\n(.*?)```',
                          document, re.S).group(1).strip().splitlines()
+    output_commands = re.search(r'<!-- tutorial-output-monitor -->\s*```text\n(.*?)```',
+                                document, re.S).group(1).strip().splitlines()
+    with Renode(executable, firmware=False) as renode:
+        topology = renode.execute('peripherals').lower()
+        assert 'cpu' not in topology and 'i2c1' not in topology, topology
+        output = [renode.execute(command).strip() for command in commands]
+        assert output[0] == '[255]' and output[1].lower() == 'false', output
+        assert output[4] == '[239]' and output[7] == '[255]', output
+        output = [renode.execute(command).strip() for command in output_commands]
+        assert output[0] == '[254]' and output[1].lower() == 'true', output
+        assert output[2] == '[255]' and output[3].lower() == 'false', output
+    print('PASS tutorial standalone: no CPU or I2C master, button input, LED output and reset', flush=True)
+
+
+def check_i2c_monitor(executable, document):
+    from renode_client import Renode
+
+    commands = re.search(r'<!-- tutorial-i2c-monitor -->\s*```text\n(.*?)```',
+                         document, re.S).group(1).strip().splitlines()
     with Renode(executable, firmware=False) as renode:
         output = [renode.execute(command).strip() for command in commands]
-        assert output[1] == '[255]' and output[2] == '[254]', output
-        assert output[3].lower() == 'true', output
-        assert output[6] == '[238]' and output[9] == '[254]', output
-    print('PASS tutorial model Monitor: reset, write, LED and button wire', flush=True)
+        assert 'i2c1' in output[0] and 'pcf8574' in output[0], output
+        assert output[1] == '[255]', output
+    print('PASS tutorial I2C: PCF8574 registered under STM32 I2C1 before firmware', flush=True)
 
 
 def check_monitor_and_panel(work, executable, document):
@@ -103,7 +121,14 @@ def main():
     assert len(blocks) == len(AUTHORED) and {name for name, _ in blocks} == AUTHORED
     updates = re.findall(r'<!-- tutorial-update: ([^ ]+) -->\s*```[^\n]*\n(.*?)```',
                          document, re.S)
-    assert len(updates) == 1 and updates[0][0] == 'platforms/stm32.repl'
+    assert len(updates) == 2 and {name for name, _ in updates} == {
+        'scripts/platform.resc', 'platforms/stm32.repl',
+    }
+    registration = re.search(r'<!-- tutorial-registration: platforms/pcf8574.repl -->\s*```text\n(.*?)```',
+                             document, re.S).group(1).strip()
+    assert registration == 'pcf8574: Tutorial.PCF8574 @ i2c1 0x20'
+    initial = dict(blocks)
+    updated = dict(updates)
     with tempfile.TemporaryDirectory(prefix='pcf-readme-') as temp:
         work = Path(temp)
         for name in SUPPLIED:
@@ -111,7 +136,7 @@ def main():
             destination.parent.mkdir(parents=True, exist_ok=True)
             shutil.copy2(ROOT / name, destination)
         for name, code in blocks:
-            if name == 'scripts/demo.resc':
+            if name in ('platforms/stm32.repl', 'scripts/demo.resc'):
                 continue
             destination = work / name
             destination.parent.mkdir(parents=True, exist_ok=True)
@@ -119,12 +144,19 @@ def main():
         renode_arg = ['--renode', args.renode] if args.renode else []
         print('Testing an empty directory rebuilt from README + six declared assets', flush=True)
         check_model_monitor(work, args.renode, document)
+        # Section 4 adds the STM32 and moves the PCF8574 registration to I2C1.
+        (work / 'platforms/stm32.repl').write_text(initial['platforms/stm32.repl'], encoding='utf-8')
+        pcf = initial['platforms/pcf8574.repl']
+        assert pcf.splitlines()[0] == 'pcf8574: Tutorial.PCF8574 @ sysbus'
+        pcf = registration + '\n' + pcf.split('\n', 1)[1]
+        (work / 'platforms/pcf8574.repl').write_text(pcf, encoding='utf-8')
+        (work / 'scripts/platform.resc').write_text(updated['scripts/platform.resc'], encoding='utf-8')
+        check_i2c_monitor(args.renode, document)
         subprocess.run([sys.executable, '-u', 'tests/check.py', 'model', *renode_arg],
                        cwd=work, check=True)
-        # Apply the firmware section's override only after the wire checks.
-        for name, code in updates:
-            (work / name).write_text(code, encoding='utf-8')
-        (work / 'scripts/demo.resc').write_text(dict(blocks)['scripts/demo.resc'], encoding='utf-8')
+        # Section 5 aligns SysTick with the firmware before loading the ELF.
+        (work / 'platforms/stm32.repl').write_text(updated['platforms/stm32.repl'], encoding='utf-8')
+        (work / 'scripts/demo.resc').write_text(initial['scripts/demo.resc'], encoding='utf-8')
         subprocess.run([sys.executable, '-u', 'tests/check.py', 'firmware', *renode_arg],
                        cwd=work, check=True)
         check_monitor_and_panel(work, args.renode, document)
