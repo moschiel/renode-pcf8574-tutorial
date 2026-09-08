@@ -82,8 +82,10 @@ def check_monitor_and_panel(work, executable, document):
     from renode_client import Renode
     from lab import Lab, ThreadingHTTPServer, handler_for
 
-    commands = re.search(r'<!-- tutorial-monitor -->\s*```text\n(.*?)```',
-                         document, re.S).group(1).strip().splitlines()
+    blocks = re.findall(r'<!-- tutorial-monitor -->\s*```text\n(.*?)```',
+                        document, re.S)
+    commands = [line for block in blocks for line in block.strip().splitlines()]
+    assert len(commands) == 8, commands
     with Renode(executable) as renode:
         output = [renode.execute(command).strip() for command in commands]
         assert output[1].lower() == 'true', output

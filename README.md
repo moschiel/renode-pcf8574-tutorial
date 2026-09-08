@@ -627,6 +627,8 @@ sysbus LoadELF @firmware/demo.elf
 showAnalyzer sysbus.usart2
 ```
 
+O script carrega a plataforma com `include`, carrega o **firmware já compilado e disponibilizado** em `firmware/demo.elf` com `LoadELF` e abre a saída da USART2 com `showAnalyzer`. Não é preciso compilar para executar esta demo. Confira que o arquivo contém as três linhas antes de iniciar o Renode.
+
 ### Verificar o firmware
 
 **Terminal:**
@@ -637,29 +639,83 @@ renode --console --disable-gui --plain scripts/demo.resc
 
 Em um Monitor vazio, o equivalente é `include @scripts/demo.resc`. Atalho opcional: `python tools/lab.py --monitor`.
 
-**Monitor**, em uma sessão nova e sem executar `start` antes:
+No **Monitor**, use uma sessão nova, sem executar `start` antes. Execute os blocos abaixo separadamente.
+
+Avance 270 ms de tempo virtual para inicializar o firmware e alcançar a primeira alternância:
 
 <!-- tutorial-monitor -->
 ```text
 emulation RunFor "0.270"
+```
+
+Na UART, confira a mensagem `PCF8574 ready` e `INPUT P7..P4=0xF`, com os botões soltos. Consulte o LED conectado a P0:
+
+<!-- tutorial-monitor -->
+```text
 sysbus.led0 State
+```
+
+**Esperado:** `True` (LED aceso).
+
+Pressione o botão ligado a P4; `button4` é o nome definido no REPL:
+
+<!-- tutorial-monitor -->
+```text
 sysbus.button4 Press
+```
+
+Avance o tempo para entregar o sinal e permitir a leitura pelo firmware:
+
+<!-- tutorial-monitor -->
+```text
 emulation RunFor "0.100"
-python "print(list(monitor.Machine['sysbus.i2c1.pcf8574'].Read(1)))"
-sysbus.button4 Release
-emulation RunFor "0.100"
+```
+
+**Esperado na UART:** `INPUT P7..P4=0xE`. Consulte também o byte completo do modelo:
+
+<!-- tutorial-monitor -->
+```text
 python "print(list(monitor.Machine['sysbus.i2c1.pcf8574'].Read(1)))"
 ```
 
-**Saída esperada:** LED0 em `True`; leituras `[238]` com P4 pressionado e `[254]` após soltar. Na UART, as mensagens de entrada devem passar por `INPUT P7..P4=0xF`, `0xE` e novamente `0xF`.
+**Esperado:** `[238]` (`0xEE`): P4 está baixo e P0 continua baixo, mantendo LED0 aceso. Esta consulta chama `Read` diretamente; a mensagem UART acima veio da leitura I2C realizada pelo firmware.
+
+Solte o mesmo botão:
+
+<!-- tutorial-monitor -->
+```text
+sysbus.button4 Release
+```
+
+Avance mais 100 ms:
+
+<!-- tutorial-monitor -->
+```text
+emulation RunFor "0.100"
+```
+
+**Esperado na UART:** `INPUT P7..P4=0xF`. Confira a leitura novamente:
+
+<!-- tutorial-monitor -->
+```text
+python "print(list(monitor.Machine['sysbus.i2c1.pcf8574'].Read(1)))"
+```
+
+**Esperado:** `[254]` (`0xFE`): P4 voltou a alto; LED0 permanece aceso. O tempo acumulado é 470 ms, ainda antes da segunda alternância.
 
 `RunFor` executa o intervalo de tempo virtual solicitado e para. Para execução contínua, use `start`; para interromper, `pause`. Saia com `quit`.
 
 ### Recompilar com STM32CubeIDE (opcional)
 
-Importe a pasta `firmware` do repositório original em `File > Import > STM32CubeMX/STM32CubeIDE Project` e compile `pcf8574-demo` em `Debug`.
+Se quiser **editar o firmware da demo**, importe a pasta `firmware` do repositório original em `File > Import > STM32CubeMX/STM32CubeIDE Project`. Edite, por exemplo, `Core/Src/main.c` e compile `pcf8574-demo` em `Debug`.
 
-Na pasta `meu-pcf8574`, atualize o ELF:
+Em seguida, edite a linha `sysbus LoadELF` de **`scripts/demo.resc`** para apontar para o novo binário. É o script que recebe o caminho, não o arquivo `.elf`. Exemplo com caminho relativo à pasta `meu-pcf8574`:
+
+```text
+sysbus LoadELF @../renode-pcf8574-tutorial/firmware/Debug/pcf8574-demo.elf
+```
+
+Ajuste o caminho se o projeto estiver em outra pasta. Como alternativa, mantenha `demo.resc` inalterado e substitua o ELF da demo, executando na pasta `meu-pcf8574`:
 
 ```powershell
 Copy-Item "$referencia/firmware/Debug/pcf8574-demo.elf" firmware/demo.elf
@@ -667,7 +723,15 @@ Copy-Item "$referencia/firmware/Debug/pcf8574-demo.elf" firmware/demo.elf
 
 No Bash: `cp "$referencia/firmware/Debug/pcf8574-demo.elf" firmware/demo.elf`. Se reabriu o terminal, redefina `referencia` com o caminho do repositório original. Reinicie o Renode e repita a verificação anterior.
 
-O ELF incluído foi compilado com Arm GCC 14.3 pelo auxiliar [build_firmware.py](tools/build_firmware.py). A importação gráfica no CubeIDE ainda não foi validada neste projeto.
+**Alternativa sem IDE:** com a Arm GNU Toolchain no PATH, execute na raiz do repositório original:
+
+```sh
+python tools/build_firmware.py
+```
+
+O script opcional gera `firmware/demo.elf` nesse repositório; a opção `--gcc "caminho/do/arm-none-eabi-gcc"` permite indicar o compilador. Aponte `LoadELF` para esse arquivo ou copie-o para o `firmware/demo.elf` do exercício. Reinicie o Renode após recompilar.
+
+O ELF incluído foi compilado com Arm GCC 14.3 por esse auxiliar. A importação gráfica no CubeIDE ainda não foi validada neste projeto.
 
 ## 6. Interagir pelo painel web
 
