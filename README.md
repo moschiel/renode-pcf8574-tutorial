@@ -217,9 +217,9 @@ O auxiliar executa o mesmo comando, acrescentando `--config <arquivo-temporario>
 
 ## 3. Arquivos .repl/.resc, Conectando o modelo a LEDs e botões
 
-Um arquivo **`.repl` descreve uma plataforma do Renode**: quais modelos instanciar, seus parâmetros e suas conexões. Ele não contém firmware. Um arquivo `.resc`, por sua vez, reúne comandos do Monitor para montar e executar uma sessão.
+Um arquivo **`.repl` descreve uma plataforma do Renode**: quais modelos instanciar, seus parâmetros e suas conexões. Um arquivo **`.resc`, são scripts do Renode**, reunindo comandos do Monitor do Renode para montar e executar uma sessão.
 
-Nesta etapa, a máquina terá **somente o PCF8574, quatro LEDs e quatro botões**, sem STM32, controlador I2C ou firmware.
+Nesta etapa, a máquina terá **somente o PCF8574, quatro LEDs e quatro botões**, sem STM32, controlador I2C ou qualquer firmware para executar.
 
 Crie `platforms/pcf8574.repl`:
 
@@ -280,9 +280,9 @@ using sysbus
 machine LoadPlatformDescription @platforms/pcf8574.repl
 ```
 
-`mach create` cria a máquina; `using sysbus` permite abreviar os nomes no Monitor; `LoadPlatformDescription` monta os dispositivos e fios descritos no REPL.
+`mach create` cria a máquina; `using sysbus` permite abreviar os nomes no Monitor; `LoadPlatformDescription` monta os dispositivos e conexões dos IOs descritas no REPL.
 
-### Verificar as entradas após reset
+### Verificar as entradas ao pressionar os botões
 
 **Terminal:**
 
@@ -292,28 +292,67 @@ renode --console --disable-gui --plain scripts/platform.resc
 
 Após reset, o latch contém `0xFF`: todos os pinos estão liberados e podem ser usados como entradas. Não é necessário um mestre para que um botão altere o nível observado.
 
-**Monitor**, em sequência:
+Os nomes usados no Monitor vêm das declarações do REPL: `pcf8574:`, `led0:` e `button4:`. Como esses objetos foram registrados com `@ sysbus`, seus caminhos são `sysbus.pcf8574`, `sysbus.led0` e `sysbus.button4`. Se uma instância for renomeada no REPL, o comando também precisa usar o novo nome.
+
+Execute os passos abaixo no **Monitor** aberto pelo comando anterior, mantendo a mesma sessão.
+
+**1. Consultar o estado inicial do PCF8574**
 
 <!-- tutorial-model-monitor -->
 ```text
 python "dev = monitor.Machine['sysbus.pcf8574']; print(list(dev.Read(1)))"
+```
+
+`python` executa código no interpretador embutido do Renode, não no Python do terminal. `monitor.Machine[...]` localiza a instância pelo caminho registrado; `dev` é apenas uma variável para reutilizá-la nos próximos comandos, não um nome definido no REPL.
+
+`Read(1)` chama o método C# do modelo e solicita um byte. `list(...)` e `print(...)` exibem o resultado em decimal. **Esperado: `[255]`, equivalente a `0xFF`**, com todos os pinos liberados.
+
+**2. Conferir o LED0**
+
+<!-- tutorial-model-monitor -->
+```text
 sysbus.led0 State
+```
+
+O primeiro termo identifica o LED declarado como `led0:`; `State` consulta sua propriedade de estado. **Esperado: `False`**, pois o LED é ativo em zero e P0 está alto após reset.
+
+**3. Pressionar o botão ligado a P4**
+
+<!-- tutorial-model-monitor -->
+```text
 sysbus.button4 Press
+```
+
+`Press` aciona o modelo declarado como `button4:`. O nome do botão não determina seu destino: é a conexão `-> pcf8574@4` no REPL que o liga a P4. Com `invert: true`, pressionar envia nível baixo para `OnGPIO(4, false)` do PCF8574.
+
+**4. Aplicar o evento na simulação**
+
+<!-- tutorial-model-monitor -->
+```text
 emulation RunFor "0.001"
+```
+
+Avança **1 ms de tempo virtual** e para novamente. Esse avanço permite entregar o evento do botão mesmo sem CPU; não é uma espera de 1 ms no computador.
+
+**5. Ler o resultado**
+
+<!-- tutorial-model-monitor -->
+```text
 python "print(list(dev.Read(1)))"
+```
+
+A variável `dev` continua apontando para o mesmo PCF8574. **Esperado: `[239]`, equivalente a `0xEF` (`11101111` em binário)**: apenas P4 ficou baixo. O botão mudou `externalLevels`; o latch continua em `0xFF`.
+
+**6. Soltar o botão e conferir a recuperação**
+
+<!-- tutorial-model-monitor -->
+```text
 sysbus.button4 Release
 emulation RunFor "0.001"
 python "print(list(dev.Read(1)))"
 ```
 
-| Consulta | Saída esperada |
-| --- | --- |
-| Leitura inicial | `[255]` = `0xFF` |
-| LED0 após reset | `False` = apagado |
-| Leitura com P4 pressionado | `[239]` = `0xEF` |
-| Leitura após soltar P4 | `[255]` = `0xFF` |
-
-O botão muda `externalLevels`; o latch continua em `0xFF`. `Read(1)` permite observar o resultado desse estado interno sem acessar campos privados. `RunFor` avança o tempo virtual para entregar o evento do botão, mesmo sem CPU.
+`Release` solta o mesmo botão; o avanço seguinte entrega o nível alto ao PCF8574. **A leitura deve voltar a `[255]` (`0xFF`)**, sem uma nova escrita no latch. Isso confirma o caminho botão, conexão GPIO e estado observado pelo modelo.
 
 ### Verificar uma saída
 

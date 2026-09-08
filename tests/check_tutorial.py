@@ -27,8 +27,10 @@ def check_model_monitor(work, executable, document):
     sys.path.insert(0, str(work / 'tools'))
     from renode_client import Renode
 
-    commands = re.search(r'<!-- tutorial-model-monitor -->\s*```text\n(.*?)```',
-                         document, re.S).group(1).strip().splitlines()
+    command_blocks = re.findall(r'<!-- tutorial-model-monitor -->\s*```text\n(.*?)```',
+                                document, re.S)
+    commands = [line for block in command_blocks for line in block.strip().splitlines()]
+    assert len(commands) == 8, commands
     output_commands = re.search(r'<!-- tutorial-output-monitor -->\s*```text\n(.*?)```',
                                 document, re.S).group(1).strip().splitlines()
     with Renode(executable, firmware=False) as renode:
