@@ -4,11 +4,9 @@ O Renode permite executar firmware com modelos de hardware prontos. Quando um pe
 
 Este tutorial cria um modelo do periférico **PCF8574, um expansor de oito entradas e saídas digitais controlado via I2C**. Ele permite ampliar os I/Os de um microcontrolador através do barramento I2C. O microcontrolador envia comandos para atuar nas saídas e lê o estado das entradas.
 
-O objetivo é didático: implementar uma versão básica a partir do datasheet, sem usar o código de uma implementação pronta como referência.
-
 Para testar o caso de uso, o **PCF8574 é conectado ao I2C de um STM32F407**. O firmware alterna quatro LEDs pelas saídas P0..P3 e imprime na UART as mudanças dos botões ligados a P4..P7. Ao final, um painel web permite observar os LEDs e acionar os botões, sem placa física.
 
-> **Escopo:** o foco deste tutorial é criar um modelo básico de periférico a partir do datasheet e demonstrar seu uso com um STM32. O painel web, os testes automatizados e os auxiliares de integração foram 100% desenvolvidos com IA (*vibe coding*) como apoio à demonstração. A implementação desses recursos, incluindo a integração com a interface de testes do Renode, fica fora do escopo do tutorial.
+> **Escopo:** o foco deste tutorial é como criar um modelo básico de periférico a partir do datasheet e demonstrar seu uso com um STM32. Recursos no projeto fora desse escopo foram 100% *vibe coded* (interface gráfica (painel web), testes automatizados com Python/RobotFramework, entre outros).
 
 ![Diagrama do modelo PCF8574 conectado ao STM32F407](figures/model.jpg)
 
@@ -211,13 +209,6 @@ include @models/PCF8574.cs
 
 O Renode deve carregar `PCF8574.cs` e retornar ao prompt `(monitor)` sem erros de compilação. Digite `quit` para sair. Isso verifica a compilação; a próxima etapa instancia o dispositivo para verificar seu comportamento.
 
-**Atalho opcional do projeto:**
-
-```sh
-python tools/lab.py --monitor --script models/PCF8574.cs
-```
-
-O auxiliar executa o mesmo comando, acrescentando `--config <arquivo-temporario>` e isolando `TEMP`, `TMP` e `TMPDIR` para não depender da configuração pessoal. Ele não é necessário para compilar ou carregar modelos.
 
 ## 3. Arquivos .repl/.resc, Conectando o modelo a LEDs e botões
 
@@ -641,7 +632,7 @@ O script carrega a plataforma com `include`, carrega o **firmware já compilado 
 renode --console --disable-gui --plain scripts/demo.resc
 ```
 
-Em um Monitor vazio, o equivalente é `include @scripts/demo.resc`. Atalho opcional: `python tools/lab.py --monitor`.
+Em um Monitor vazio, o equivalente é `include @scripts/demo.resc`.
 
 No **Monitor**, use uma sessão nova, sem executar `start` antes. Execute os blocos abaixo separadamente.
 
@@ -737,7 +728,7 @@ O script opcional gera `firmware/demo.elf` nesse repositório; a opção `--gcc 
 
 O ELF incluído foi compilado com Arm GCC 14.3 por esse auxiliar. A importação gráfica no CubeIDE ainda não foi validada neste projeto.
 
-## 6. Painel web (opcional)
+## 6. Painel web (vibe coded)
 
 Encerre o Monitor e execute no **Terminal**:
 
@@ -764,7 +755,7 @@ O painel é específico deste exemplo. Usa o [servidor remoto de testes do Renod
 
 O efeito de um botão acionado enquanto pausado aparece no próximo avanço. Encerre com `Ctrl+C` no terminal.
 
-## Testes automatizados (opcional)
+## Testes automatizados (vibe coded)
 
 Na pasta do projeto:
 
@@ -773,8 +764,6 @@ python tests/check.py all
 ```
 
 São esperadas as linhas `PASS model:` e `PASS firmware:`. O primeiro teste verifica o modelo isolado; o segundo executa o firmware e verifica LEDs, botões e UART.
-
-No repositório original, `python tests/check_tutorial.py` também reconstrói o exemplo a partir dos blocos deste README em uma pasta temporária e confere os comandos documentados.
 
 ## Limitações e diagnóstico
 
@@ -790,4 +779,4 @@ O modelo não implementa `INT`, correntes, curtos, temporização elétrica do I
 | Botão sem efeito | Avance o tempo virtual e confira se P4..P7 estão liberados |
 | Tempo dos LEDs incorreto | Confira o SysTick de 168 MHz |
 
-Validado no Windows com Renode 1.16.1. A execução no Linux e a importação gráfica no CubeIDE ainda requerem validação. Mantenha o painel local; não exponha as portas de controle do Renode à internet.
+Validado no Windows com Renode 1.16.1. A execução no Linux ainda requerem validação.
