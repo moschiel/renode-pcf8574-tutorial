@@ -393,9 +393,18 @@ mach create "stm32-inspect"
 
 Carregue apenas a definição do STM32 que acabamos de criar, sem o PCF8574:
 
-<!-- tutorial-stm32-monitor -->
+**Windows:**
+
+<!-- tutorial-stm32-monitor-windows -->
 ```text
 machine LoadPlatformDescription @platforms\stm32.repl
+```
+
+**Linux:**
+
+<!-- tutorial-stm32-monitor-linux -->
+```text
+machine LoadPlatformDescription @platforms/stm32.repl
 ```
 
 Consulte os periféricos da máquina selecionada:
@@ -405,14 +414,14 @@ Consulte os periféricos da máquina selecionada:
 peripherals
 ```
 
-O comando mostra a árvore de dispositivos carregados nessa máquina, não um catálogo de todos os modelos disponíveis no Renode. Entre os periféricos do STM32, deve aparecer este trecho:
+O comando mostra a árvore de dispositivos carregados nessa máquina, não um catálogo de todos os modelos disponíveis no Renode. Entre os periféricos do STM32, deve aparecer uma entrada `i2c1` iniciada no endereço `0x40005400`, semelhante a:
 
 ```text
-i2c1 (STM32F4_I2C)
-    <0x40005400, 0x400057FF>
+i2c1 (STM32F1_I2C)
+    <0x40005400, 0x4000543F>
 ```
 
-`i2c1` é o nome da instância do controlador I2C1 na definição importada; `STM32F4_I2C` é o tipo do modelo. Por isso podemos usar `i2c1` como destino da conexão do PCF8574. O intervalo mostrado corresponde aos registradores do controlador na memória do STM32, não ao endereço I2C do expansor.
+O nome do tipo e o fim do intervalo podem variar entre builds do Renode 1.16.1; por exemplo, a distribuição do Windows pode mostrar `STM32F4_I2C` e `<0x40005400, 0x400057FF>`. `i2c1` é o nome estável da instância do controlador I2C1 na definição importada. Por isso podemos usá-lo como destino da conexão do PCF8574. O intervalo mostrado corresponde aos registradores do controlador na memória do STM32, não ao endereço I2C do expansor.
 
 **Verificação:** `i2c1` deve existir, ainda sem `pcf8574` abaixo dele. Digite `quit` para encerrar essa sessão de inspeção antes de continuar.
 
@@ -779,4 +788,4 @@ O modelo não implementa `INT`, correntes, curtos, temporização elétrica do I
 | Botão sem efeito | Avance o tempo virtual e confira se P4..P7 estão liberados |
 | Tempo dos LEDs incorreto | Confira o SysTick de 168 MHz |
 
-Validado no Windows com Renode 1.16.1. A execução no Linux ainda requerem validação.
+Validado no Windows e no Linux com Renode 1.16.1. No Linux, use `python3` nos comandos do Terminal caso o executável `python` não esteja disponível.
