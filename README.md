@@ -8,6 +8,8 @@ O objetivo é didático: implementar uma versão básica a partir do datasheet, 
 
 Para testar o caso de uso, o **PCF8574 é conectado ao I2C de um STM32F407**. O firmware alterna quatro LEDs pelas saídas P0..P3 e imprime na UART as mudanças dos botões ligados a P4..P7. Ao final, um painel web permite observar os LEDs e acionar os botões, sem placa física.
 
+> **Escopo:** o foco deste tutorial é criar um modelo básico de periférico a partir do datasheet e demonstrar seu uso com um STM32. O painel web, os testes automatizados e os auxiliares de integração foram 100% desenvolvidos com IA (*vibe coding*) como apoio à demonstração. A implementação desses recursos, incluindo a integração com a interface de testes do Renode, fica fora do escopo do tutorial.
+
 ![Diagrama do modelo PCF8574 conectado ao STM32F407](figures/model.jpg)
 
 
@@ -735,7 +737,7 @@ O script opcional gera `firmware/demo.elf` nesse repositório; a opção `--gcc 
 
 O ELF incluído foi compilado com Arm GCC 14.3 por esse auxiliar. A importação gráfica no CubeIDE ainda não foi validada neste projeto.
 
-## 6. Interagir pelo painel web
+## 6. Painel web (opcional)
 
 Encerre o Monitor e execute no **Terminal**:
 
