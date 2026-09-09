@@ -1,8 +1,8 @@
 <!doctype html>
-<html lang="pt-BR">
+<html lang="en">
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>PCF8574 | Laboratório Renode</title>
+<title>PCF8574 | Renode Lab</title>
 <style>
 :root{--paper:#f3f1e9;--ink:#1d302b;--muted:#5f7068;--line:#bac9bc;--green:#087b5a}
 *{box-sizing:border-box}
@@ -47,25 +47,25 @@ button:hover{background:white}button:focus-visible{outline:3px solid #c16a35;out
 }
 </style>
 <main>
-<header><h1>Renode / PCF8574</h1><span class="status" id="status" role="status">Conectando…</span></header>
-<div class="toolbar"><button id="pause" disabled>Pausar</button><button id="step" disabled>Avançar 250 ms</button><span class="clock">TEMPO VIRTUAL <b id="clock">—</b> s</span></div>
+<header><h1>Renode / PCF8574</h1><span class="status" id="status" role="status">Connecting…</span></header>
+<div class="toolbar"><button id="pause" disabled>Pause</button><button id="step" disabled>Advance 250 ms</button><span class="clock">VIRTUAL TIME <b id="clock">—</b> s</span></div>
 <div id="error" role="alert"></div>
-<section class="board" id="board" aria-label="Placa virtual">
+<section class="board" id="board" aria-label="Virtual board">
 <div class="chain"><div class="chip"><strong>STM32F407</strong></div><div class="bus">I²C1</div><div class="chip pcf"><strong>PCF8574</strong><small>0x20</small></div><div class="wiring"><div id="leds"></div><div id="buttons"></div></div></div>
 </section>
 <div class="port mono">Port: <b id="hex">—</b> <span id="bits">—</span></div>
-<section class="terminal" aria-label="Saída UART do firmware"><div class="label">USART2</div><pre id="uart">Aguardando conexão…</pre></section>
+<section class="terminal" aria-label="Firmware UART output"><div class="label">USART2</div><pre id="uart">Waiting for connection…</pre></section>
 </main>
 <script>
 const $=id=>document.getElementById(id);let state=null,busy=false,failed=false;
 for(let i=0;i<4;i++){
  const row=pin=>{const r=document.createElement('div');r.className='pin-row';r.innerHTML='<div class="wire"><span>P'+pin+'</span></div>';return r;};
  const el=document.createElement('div');el.className='device';el.id='led'+i;el.innerHTML='<div class="lamp"></div><span>LED '+i+'</span><small class="sr-only">—</small>';const lr=row(i);lr.append(el);$('leds').append(lr);
- const b=document.createElement('button');b.className='push device';b.id='button'+(i+4);b.disabled=true;b.setAttribute('aria-pressed','false');b.title='Clique para pressionar ou soltar';b.innerHTML='<span>Botão '+(i+4)+'</span><small class="sr-only">—</small>';b.onclick=()=>control({action:'button',pin:i+4,pressed:!state.buttons[i]});const br=row(i+4);br.append(b);$('buttons').append(br);
+ const b=document.createElement('button');b.className='push device';b.id='button'+(i+4);b.disabled=true;b.setAttribute('aria-pressed','false');b.title='Click to press or release';b.innerHTML='<span>Button '+(i+4)+'</span><small class="sr-only">—</small>';b.onclick=()=>control({action:'button',pin:i+4,pressed:!state.buttons[i]});const br=row(i+4);br.append(b);$('buttons').append(br);
 }
-function render(s){state=s;if(s.error)throw Error(s.error);failed=false;$('error').style.display='none';$('board').classList.remove('offline-board');$('status').className='status';$('status').textContent=s.running?'Em execução':'Pausado';$('pause').textContent=s.running?'Pausar':'Continuar';$('clock').textContent=s.seconds.toFixed(3);$('hex').textContent='0x'+s.port.toString(16).toUpperCase().padStart(2,'0');$('bits').textContent=s.port.toString(2).padStart(8,'0');s.leds.forEach((on,i)=>{const e=$('led'+i);e.classList.toggle('on',on);e.querySelector('small').textContent=on?'ACESO':'APAGADO';e.setAttribute('aria-label','LED P'+i+(on?' aceso':' apagado'));});s.buttons.forEach((on,i)=>{const b=$('button'+(i+4));b.setAttribute('aria-pressed',String(on));b.querySelector('small').textContent=on?'PRESSIONADO':'SOLTO';});const txt=s.uart.join('\n');if($('uart').textContent!==txt){$('uart').textContent=txt;$('uart').scrollTop=$('uart').scrollHeight;}document.querySelectorAll('button').forEach(b=>b.disabled=busy);}
-function offline(e){failed=true;$('status').textContent='Sem conexão';$('status').className='status offline';$('error').textContent='Não foi possível atualizar a simulação: '+e.message+'. Confira o terminal do launcher.';$('error').style.display='block';$('board').classList.add('offline-board');document.querySelectorAll('button').forEach(b=>b.disabled=true);}
-async function api(path,options){const r=await fetch(path,{...options,signal:AbortSignal.timeout(8000)});const data=await r.json();if(!r.ok)throw Error(data.error||'Falha HTTP');return data;}
+function render(s){state=s;if(s.error)throw Error(s.error);failed=false;$('error').style.display='none';$('board').classList.remove('offline-board');$('status').className='status';$('status').textContent=s.running?'Running':'Paused';$('pause').textContent=s.running?'Pause':'Resume';$('clock').textContent=s.seconds.toFixed(3);$('hex').textContent='0x'+s.port.toString(16).toUpperCase().padStart(2,'0');$('bits').textContent=s.port.toString(2).padStart(8,'0');s.leds.forEach((on,i)=>{const e=$('led'+i);e.classList.toggle('on',on);e.querySelector('small').textContent=on?'ON':'OFF';e.setAttribute('aria-label','LED P'+i+(on?' on':' off'));});s.buttons.forEach((on,i)=>{const b=$('button'+(i+4));b.setAttribute('aria-pressed',String(on));b.querySelector('small').textContent=on?'PRESSED':'RELEASED';});const txt=s.uart.join('\n');if($('uart').textContent!==txt){$('uart').textContent=txt;$('uart').scrollTop=$('uart').scrollHeight;}document.querySelectorAll('button').forEach(b=>b.disabled=busy);}
+function offline(e){failed=true;$('status').textContent='Disconnected';$('status').className='status offline';$('error').textContent='Could not update the simulation: '+e.message+'. Check the launcher terminal.';$('error').style.display='block';$('board').classList.add('offline-board');document.querySelectorAll('button').forEach(b=>b.disabled=true);}
+async function api(path,options){const r=await fetch(path,{...options,signal:AbortSignal.timeout(8000)});const data=await r.json();if(!r.ok)throw Error(data.error||'HTTP failure');return data;}
 async function control(body){if(busy||!state)return;busy=true;document.querySelectorAll('button').forEach(b=>b.disabled=true);try{render(await api('/api/control',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(body)}));}catch(e){offline(e);}finally{busy=false;if(!failed)render(state);}}
 $('pause').onclick=()=>control({action:state.running?'pause':'resume'});$('step').onclick=()=>control({action:'step'});
 async function poll(){if(!busy){try{const s=await api('/api/state');if(!busy)render(s);}catch(e){offline(e);}}setTimeout(poll,80);}poll();

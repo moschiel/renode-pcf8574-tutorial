@@ -117,7 +117,9 @@ def check_monitor_and_panel(work, executable, document):
                 return payload if path == '/' else json.loads(payload)
 
         try:
-            assert b'<html' in request('/')
+            page = request('/')
+            assert b'<html lang="en">' in page and b'Renode Lab' in page
+            assert b'Pause' in page and b'Advance 250 ms' in page and b'Button ' in page
             assert request()['leds'] == [False] * 4
             state = request('/api/control', {'action': 'step'})
             assert state['leds'] == [True, False, False, False], state
@@ -148,6 +150,11 @@ def main():
     parser.add_argument('--renode')
     args = parser.parse_args()
     document = (ROOT / 'README.md').read_text(encoding='utf-8')
+    portuguese = (ROOT / 'README.pt-BR.md').read_text(encoding='utf-8')
+    tagged_block_pattern = r'(<!-- tutorial-[^>]+ -->)\s*```([^\n]*)\n(.*?)```'
+    assert re.findall(tagged_block_pattern, document, re.S) == re.findall(
+        tagged_block_pattern, portuguese, re.S
+    ), 'Executable tutorial blocks differ between README.md and README.pt-BR.md'
     blocks = re.findall(r'<!-- tutorial-file: ([^ ]+) -->\s*```[^\n]*\n(.*?)```',
                         document, re.S)
     assert len(blocks) == len(AUTHORED) and {name for name, _ in blocks} == AUTHORED

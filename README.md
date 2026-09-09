@@ -1,14 +1,16 @@
-# Modelando um PCF8574 no Renode
+# Modeling an I/O Expander over I²C (PCF8574) in Renode
 
-O Renode permite executar firmware com modelos de hardware prontos. Quando um periférico não está disponível, é possível implementar seu comportamento em C# e conectá-lo à plataforma simulada.
+**English** | [Português (Brasil)](README.pt-BR.md)
 
-Este tutorial cria um modelo do periférico **PCF8574, um expansor de oito entradas e saídas digitais controlado via I2C**. Ele permite ampliar os I/Os de um microcontrolador através do barramento I2C. O microcontrolador envia comandos para atuar nas saídas e lê o estado das entradas.
+Renode can run firmware against ready-made hardware models. When a peripheral is unavailable, you can implement its behavior in C# and connect it to the simulated platform.
 
-Para testar o caso de uso, o **PCF8574 é conectado ao I2C de um STM32F407**. O firmware alterna quatro LEDs pelas saídas P0..P3 e imprime na UART as mudanças dos botões ligados a P4..P7. Ao final, um painel web permite observar os LEDs e acionar os botões, sem placa física.
+This tutorial creates a model of the **PCF8574, an eight-bit digital input/output expander controlled over I2C**. It extends a microcontroller's I/O through the I2C bus. The microcontroller sends commands to drive the outputs and reads the input states.
 
-> **Escopo:** o foco deste tutorial é como criar um modelo básico de periférico a partir do datasheet e demonstrar seu uso com um STM32. Recursos no projeto fora desse escopo foram 100% *vibe coded* (interface gráfica (painel web), testes automatizados com Python/RobotFramework, entre outros).
+To demonstrate the use case, the **PCF8574 is connected to an STM32F407 over I2C**. The firmware toggles four LEDs on outputs P0..P3 and prints changes from the buttons connected to P4..P7 over UART. Finally, a web panel lets you watch the LEDs and operate the buttons without physical hardware.
 
-![Diagrama do modelo PCF8574 conectado ao STM32F407](figures/model.jpg)
+> **Scope:** this tutorial focuses on creating a basic peripheral model from the datasheet and demonstrating it with an STM32. Project features outside this scope were 100% *vibe coded* (the web GUI, automated Python/Robot Framework tests, and others).
+
+![Diagram of the PCF8574 model connected to an STM32F407](figures/model.jpg)
 
 
 ```text
@@ -16,30 +18,30 @@ STM32F407 --I2C1--> PCF8574 --P0..P3--> LEDs
                       ^
                       |
                    P4..P7
-                   Botões
+                   Buttons
 
-STM32 USART2 -----------------------> Terminal UART
+STM32 USART2 -----------------------> UART terminal
 ```
 
-## 1. Preparar o projeto
+## 1. Prepare the project
 
-Requisitos: [Renode 1.16.1](https://renode.readthedocs.io/en/latest/introduction/installing.html), Python 3.10 ou superior e um editor. O Renode compila o modelo C# durante o carregamento; não é necessário instalar um SDK .NET separado. Os auxiliares usam apenas a biblioteca padrão do Python.
+Requirements: [Renode 1.16.1](https://renode.readthedocs.io/en/latest/introduction/installing.html), Python 3.10 or newer, and an editor. Renode compiles the C# model while loading it; you do not need a separate .NET SDK. The helper programs use only the Python standard library.
 
-Baixe ou clone este repositório. Abra um terminal na raiz dele e crie uma pasta irmã chamada `meu-pcf8574`. Os comandos transferem apenas o firmware e os auxiliares de interface e testes; o modelo e a plataforma serão criados nas próximas etapas. Use outro nome se a pasta de destino já existir.
+Download or clone this repository. Open a terminal in its root and create a sibling directory named `my-pcf8574`. The commands copy only the firmware and the interface and test helpers; you will create the model and platform in the following steps. Use another name if the destination already exists.
 
 **Windows / PowerShell:**
 
 ```powershell
-$referencia = (Get-Location).Path
-New-Item -ItemType Directory ../meu-pcf8574 -ErrorAction Stop
-Set-Location ../meu-pcf8574
+$reference = (Get-Location).Path
+New-Item -ItemType Directory ../my-pcf8574 -ErrorAction Stop
+Set-Location ../my-pcf8574
 New-Item -ItemType Directory models, platforms, scripts, firmware, tools, tests, web
-Copy-Item "$referencia/firmware/demo.elf" firmware/
-Copy-Item "$referencia/tools/renode_client.py" tools/
-Copy-Item "$referencia/tools/lab.py" tools/
-Copy-Item "$referencia/tests/check.py" tests/
-Copy-Item "$referencia/scripts/bridge.py" scripts/
-Copy-Item "$referencia/web/index.html" web/
+Copy-Item "$reference/firmware/demo.elf" firmware/
+Copy-Item "$reference/tools/renode_client.py" tools/
+Copy-Item "$reference/tools/lab.py" tools/
+Copy-Item "$reference/tests/check.py" tests/
+Copy-Item "$reference/scripts/bridge.py" scripts/
+Copy-Item "$reference/web/index.html" web/
 python --version
 ```
 
@@ -47,44 +49,44 @@ python --version
 <summary>Linux / Bash</summary>
 
 ```bash
-referencia="$PWD"
-mkdir ../meu-pcf8574
-cd ../meu-pcf8574
+reference="$PWD"
+mkdir ../my-pcf8574
+cd ../my-pcf8574
 mkdir models platforms scripts firmware tools tests web
-cp "$referencia/firmware/demo.elf" firmware/
-cp "$referencia/tools/renode_client.py" "$referencia/tools/lab.py" tools/
-cp "$referencia/tests/check.py" tests/
-cp "$referencia/scripts/bridge.py" scripts/
-cp "$referencia/web/index.html" web/
+cp "$reference/firmware/demo.elf" firmware/
+cp "$reference/tools/renode_client.py" "$reference/tools/lab.py" tools/
+cp "$reference/tests/check.py" tests/
+cp "$reference/scripts/bridge.py" scripts/
+cp "$reference/web/index.html" web/
 python3 --version
 ```
 
-Use `python3` no lugar de `python` nos próximos comandos, se necessário.
+Use `python3` instead of `python` in the following commands if necessary.
 
 </details>
 
-**Verificação:** `renode --version` deve mostrar a versão instalada, e `python --version`, Python 3.10 ou superior. Os comandos abaixo usam `renode` disponível no PATH.
+**Check:** `renode --version` should show the installed version, and `python --version` should show Python 3.10 or newer. The commands below expect `renode` to be available on the PATH.
 
-Todos os caminhos seguintes são relativos à pasta **meu-pcf8574**. Comandos identificados como **Terminal** são executados no PowerShell ou Bash; comandos do **Monitor** são executados dentro do Renode.
+All paths below are relative to the **my-pcf8574** directory. Commands labeled **Terminal** run in PowerShell or Bash; commands labeled **Monitor** run inside Renode.
 
-## 2. Implementar o PCF8574
+## 2. Implement the PCF8574
 
-O comportamento implementado segue este recorte do [datasheet TI PCF8574, revisão K](https://www.ti.com/lit/ds/symlink/pcf8574.pdf):
+The implementation follows this subset of the [TI PCF8574 datasheet, revision K](https://www.ti.com/lit/ds/symlink/pcf8574.pdf):
 
-| Comportamento | Implementação | Referência |
+| Behavior | Implementation | Reference |
 | --- | --- | --- |
-| Pinos inicialmente em nível alto | Latch inicia em `0xFF` | Seção 7.1 |
-| Zero escrito força nível baixo | Zero no latch domina o nível observado | Figura 7-2 |
-| Um escrito libera o pino com pull-up fraco | Sinal externo pode baixar o nível | Figura 7-2 |
-| Leitura observa os pinos | Retornar o estado efetivo, não só o latch | Figura 7-4 |
-| Atualização por bytes sucessivos | Processar cada byte recebido | Figura 7-3 |
-| A2/A1/A0 em zero | Endereço I2C de sete bits `0x20` | Seção 7.3.3 |
+| Pins initially high | The latch starts at `0xFF` | Section 7.1 |
+| Writing zero forces a low level | A zero in the latch dominates the observed level | Figure 7-2 |
+| Writing one releases the pin with a weak pull-up | An external signal can pull the level low | Figure 7-2 |
+| Reads observe the pins | Return the effective state, not only the latch | Figure 7-4 |
+| Successive-byte updates | Process every received byte | Figure 7-3 |
+| A2/A1/A0 tied low | Seven-bit I2C address `0x20` | Section 7.3.3 |
 
-Não há registrador de direção: escrever `1` permite usar o pino como entrada. Neste modelo digital, o nível lógico observado é ditado no código pela operação `outputLatch & externalLevels`. Correntes, resistências, entre outras características elétricas não são simuladas.
+There is no direction register: writing `1` allows a pin to be used as an input. In this digital model, the observed logic level is determined by `outputLatch & externalLevels`. Currents, resistances, and other electrical characteristics are not simulated.
 
-**Escritas sucessivas:** a seção 7.3.1 da datasheet afirma que bytes adicionais na mesma transação são ignorados, mas a figura 7-3 mostra dois bytes atualizando o port. O `foreach` abaixo adota o comportamento do diagrama; essa é uma escolha do modelo diante da divergência, não uma conclusão inequívoca do texto. O firmware envia um byte por transação. Transações separadas continuam podendo atualizar o port normalmente.
+**Successive writes:** section 7.3.1 of the datasheet says that additional bytes in the same transaction are ignored, while Figure 7-3 shows two bytes updating the port. The `foreach` below follows the diagram; this is a modeling choice in response to that discrepancy, not an unambiguous conclusion from the text. The firmware sends one byte per transaction. Separate transactions can still update the port normally.
 
-Crie `models/PCF8574.cs`:
+Create `models/PCF8574.cs`:
 
 <!-- tutorial-file: models/PCF8574.cs -->
 ```csharp
@@ -189,34 +191,34 @@ namespace Antmicro.Renode.Peripherals.Tutorial
 }
 ```
 
-`II2CPeripheral` atende o barramento I2C; `IGPIOReceiver` recebe mudanças externas dos botões; `INumberedGPIOOutput` expõe os oito conectores de saída, usados pelos LEDs neste exemplo. Esses contratos separam o [comportamento do periférico](https://renode.readthedocs.io/en/latest/advanced/writing-peripherals.html) das conexões da plataforma.
+`II2CPeripheral` serves the I2C bus; `IGPIOReceiver` receives external button changes; and `INumberedGPIOOutput` exposes the eight output connectors used by the LEDs in this example. These contracts separate the [peripheral behavior](https://renode.readthedocs.io/en/latest/advanced/writing-peripherals.html) from the platform connections.
 
-O latch guarda o comando do mestre (Nesse exemplo um STM32), enquanto `externalLevels` guarda o sinal externo. `OnGPIO` altera um bit desse sinal e `UpdatePinLevels` publica o resultado nos conectores. O reset não solta um botão que continua pressionado externamente.
+The latch stores the master's command (an STM32 in this example), while `externalLevels` stores the external signal. `OnGPIO` changes one bit of that signal, and `UpdatePinLevels` publishes the result through the connectors. Resetting the chip does not release a button that remains externally pressed.
 
-**Verificação de compilação do PCF8574.cs, no Terminal:**
+**Compile check for PCF8574.cs, in the Terminal:**
 
-Execute o Renode diretamente, a partir da pasta `meu-pcf8574`.
+Run Renode directly from the `my-pcf8574` directory.
 
 ```sh
 renode --console --disable-gui --plain models/PCF8574.cs
 ```
 
-`--console` abre o Monitor no terminal, `--disable-gui` desativa a interface gráfica e `--plain` simplifica a apresentação. O arquivo passado no final é carregado na inicialização. Também é possível abrir o Renode sem esse argumento e executar no **Monitor**:
+`--console` opens the Monitor in the terminal, `--disable-gui` disables the graphical interface, and `--plain` simplifies the output. The final file argument is loaded at startup. You can also open Renode without that argument and run this in the **Monitor**:
 
 ```text
 include @models/PCF8574.cs
 ```
 
-O Renode deve carregar `PCF8574.cs` e retornar ao prompt `(monitor)` sem erros de compilação. Digite `quit` para sair. Isso verifica a compilação; a próxima etapa instancia o dispositivo para verificar seu comportamento.
+Renode should load `PCF8574.cs` and return to the `(monitor)` prompt without compilation errors. Enter `quit` to exit. This checks compilation; the next step instantiates the device to check its behavior.
 
 
-## 3. Arquivos .repl/.resc, Conectando o modelo a LEDs e botões
+## 3. Connect the model to LEDs and buttons with .repl/.resc files
 
-Um arquivo **`.repl` descreve uma plataforma do Renode**: quais modelos instanciar, seus parâmetros e suas conexões. Um arquivo **`.resc`, são scripts do Renode**, reunindo comandos do Monitor do Renode para montar e executar uma sessão.
+A **`.repl` file describes a Renode platform**: which models to instantiate, their parameters, and their connections. A **`.resc` file is a Renode script** that groups Monitor commands used to assemble and run a session.
 
-Nesta etapa, a máquina terá **somente o PCF8574, quatro LEDs e quatro botões**, sem STM32, controlador I2C ou qualquer firmware para executar.
+At this stage, the machine contains **only the PCF8574, four LEDs, and four buttons**, with no STM32, I2C controller, or firmware to run.
 
-Crie `platforms/pcf8574.repl`:
+Create `platforms/pcf8574.repl`:
 
 <!-- tutorial-file: platforms/pcf8574.repl -->
 ```text
@@ -251,22 +253,22 @@ button7: Miscellaneous.Button @ sysbus
     -> pcf8574@7
 ```
 
-### O que cada declaração significa
+### What each declaration means
 
-| Trecho | Significado |
+| Fragment | Meaning |
 | --- | --- |
-| `pcf8574:` | Nome desta instância na plataforma |
-| `Tutorial.PCF8574` | Classe C# do modelo, relativa a `Antmicro.Renode.Peripherals` |
-| `@ sysbus` | Registra o objeto na máquina, sem endereço de memória nesta declaração |
-| `preinit: include @models/PCF8574.cs` | Carrega o código antes de criar a instância; `@` aqui identifica um caminho de arquivo |
-| `0 -> led0@0` | Liga `Connections[0]` do PCF à entrada zero do LED |
-| `-> pcf8574@4` | Liga a saída do botão ao pino P4, recebido por `OnGPIO(4, value)` |
+| `pcf8574:` | Name of this instance in the platform |
+| `Tutorial.PCF8574` | C# model class, relative to `Antmicro.Renode.Peripherals` |
+| `@ sysbus` | Registers the object in the machine without a memory address in this declaration |
+| `preinit: include @models/PCF8574.cs` | Loads the code before creating the instance; `@` identifies a file path here |
+| `0 -> led0@0` | Connects PCF `Connections[0]` to input zero of the LED |
+| `-> pcf8574@4` | Connects the button output to pin P4, received by `OnGPIO(4, value)` |
 
-`sysbus` existe em toda máquina Renode; usá-lo aqui **não adiciona uma CPU nem cria uma conexão I2C**. O endereço I2C será definido na próxima etapa. A indentação agrupa os atributos de cada dispositivo; use espaços. Referência: [descrição de plataformas](https://renode.readthedocs.io/en/latest/basic/describing_platforms.html).
+`sysbus` exists in every Renode machine; using it here **does not add a CPU or create an I2C connection**. The I2C address will be set in the next step. Indentation groups each device's attributes; use spaces. See [describing platforms](https://renode.readthedocs.io/en/latest/basic/describing_platforms.html).
 
-Os LEDs representam VCC, resistor, LED e pino do PCF: **nível baixo acende**, por isso `invert: true`. Nos botões, essa opção faz a pressão enviar zero e a liberação enviar um.
+The LEDs represent VCC, a resistor, the LED, and a PCF pin: **a low level turns an LED on**, hence `invert: true`. For buttons, this option makes a press send zero and a release send one.
 
-Crie `scripts/platform.resc`:
+Create `scripts/platform.resc`:
 
 <!-- tutorial-file: scripts/platform.resc -->
 ```text
@@ -275,9 +277,9 @@ using sysbus
 machine LoadPlatformDescription @platforms/pcf8574.repl
 ```
 
-`mach create` cria a máquina; `using sysbus` permite abreviar os nomes no Monitor; `LoadPlatformDescription` monta os dispositivos e conexões dos IOs descritas no REPL.
+`mach create` creates the machine; `using sysbus` lets you shorten names in the Monitor; and `LoadPlatformDescription` assembles the devices and I/O connections described in the REPL.
 
-### Verificar as entradas ao pressionar os botões
+### Check inputs by pressing the buttons
 
 **Terminal:**
 
@@ -285,60 +287,60 @@ machine LoadPlatformDescription @platforms/pcf8574.repl
 renode --console --disable-gui --plain scripts/platform.resc
 ```
 
-Após reset, o latch contém `0xFF`: todos os pinos estão liberados e podem ser usados como entradas. Não é necessário um mestre para que um botão altere o nível observado.
+After reset, the latch contains `0xFF`: all pins are released and can be used as inputs. A master is not required for a button to change the observed level.
 
-Os nomes usados no Monitor vêm das declarações do REPL: `pcf8574:`, `led0:` e `button4:`. Como esses objetos foram registrados com `@ sysbus`, seus caminhos são `sysbus.pcf8574`, `sysbus.led0` e `sysbus.button4`. Se uma instância for renomeada no REPL, o comando também precisa usar o novo nome.
+The names used in the Monitor come from the REPL declarations: `pcf8574:`, `led0:`, and `button4:`. Because these objects were registered with `@ sysbus`, their paths are `sysbus.pcf8574`, `sysbus.led0`, and `sysbus.button4`. If an instance is renamed in the REPL, its commands must use the new name too.
 
-Execute os passos abaixo no **Monitor** aberto pelo comando anterior, mantendo a mesma sessão.
+Perform the steps below in the **Monitor** opened by the previous command, keeping the same session.
 
-**1. Consultar o estado inicial do PCF8574**
+**1. Read the initial PCF8574 state**
 
 <!-- tutorial-model-monitor -->
 ```text
 python "dev = monitor.Machine['sysbus.pcf8574']; print(list(dev.Read(1)))"
 ```
 
-`python` executa código no interpretador embutido do Renode, não no Python do terminal. `monitor.Machine[...]` localiza a instância pelo caminho registrado; `dev` é apenas uma variável para reutilizá-la nos próximos comandos, não um nome definido no REPL.
+`python` runs code in Renode's embedded interpreter, not in the terminal's Python. `monitor.Machine[...]` locates the instance by its registered path; `dev` is only a variable reused by the next commands, not a name defined in the REPL.
 
-`Read(1)` chama o método C# do modelo e solicita um byte. `list(...)` e `print(...)` exibem o resultado em decimal. **Esperado: `[255]`, equivalente a `0xFF`**, com todos os pinos liberados.
+`Read(1)` calls the model's C# method and requests one byte. `list(...)` and `print(...)` display the result in decimal. **Expected: `[255]`, equivalent to `0xFF`**, with all pins released.
 
-**2. Conferir o LED0**
+**2. Check LED0**
 
 <!-- tutorial-model-monitor -->
 ```text
 sysbus.led0 State
 ```
 
-O primeiro termo identifica o LED declarado como `led0:`; `State` consulta sua propriedade de estado. **Esperado: `False`**, pois o LED é ativo em zero e P0 está alto após reset.
+The first term identifies the LED declared as `led0:`; `State` reads its state property. **Expected: `False`**, because the LED is active-low and P0 is high after reset.
 
-**3. Pressionar o botão ligado a P4**
+**3. Press the button connected to P4**
 
 <!-- tutorial-model-monitor -->
 ```text
 sysbus.button4 Press
 ```
 
-`Press` aciona o modelo declarado como `button4:`. O nome do botão não determina seu destino: é a conexão `-> pcf8574@4` no REPL que o liga a P4. Com `invert: true`, pressionar envia nível baixo para `OnGPIO(4, false)` do PCF8574.
+`Press` operates the model declared as `button4:`. The button name does not determine its destination: the `-> pcf8574@4` connection in the REPL connects it to P4. With `invert: true`, pressing sends a low level to the PCF8574's `OnGPIO(4, false)`.
 
-**4. Aplicar o evento na simulação**
+**4. Apply the event in the simulation**
 
 <!-- tutorial-model-monitor -->
 ```text
 emulation RunFor "0.001"
 ```
 
-Avança **1 ms de tempo virtual** e para novamente. Esse avanço permite entregar o evento do botão mesmo sem CPU; não é uma espera de 1 ms no computador.
+This advances **1 ms of virtual time** and stops again. The advance delivers the button event even without a CPU; it is not a 1 ms wait on the host computer.
 
-**5. Ler o resultado**
+**5. Read the result**
 
 <!-- tutorial-model-monitor -->
 ```text
 python "print(list(dev.Read(1)))"
 ```
 
-A variável `dev` continua apontando para o mesmo PCF8574. **Esperado: `[239]`, equivalente a `0xEF` (`11101111` em binário)**: apenas P4 ficou baixo. O botão mudou o valor da variável`externalLevels` do código C#; o latch continua em `0xFF`.
+The `dev` variable still points to the same PCF8574. **Expected: `[239]`, equivalent to `0xEF` (`11101111` in binary)**: only P4 went low. The button changed the C# `externalLevels` variable; the latch remains at `0xFF`.
 
-**6. Soltar o botão e conferir a recuperação**
+**6. Release the button and check recovery**
 
 <!-- tutorial-model-monitor -->
 ```text
@@ -347,11 +349,11 @@ emulation RunFor "0.001"
 python "print(list(dev.Read(1)))"
 ```
 
-`Release` solta o mesmo botão; o avanço seguinte entrega o nível alto ao PCF8574. **A leitura deve voltar a `[255]` (`0xFF`)**, sem uma nova escrita no latch. Isso confirma o caminho botão, conexão GPIO e estado observado pelo modelo.
+`Release` releases the same button; the following advance delivers a high level to the PCF8574. **The reading should return to `[255]` (`0xFF`)** without another latch write. This confirms the button path, GPIO connection, and state observed by the model.
 
-### Verificar uma saída
+### Check an output
 
-Na **mesma sessão do Monitor**, escreva diretamente no modelo e depois aplique reset:
+In the **same Monitor session**, write directly to the model and then reset it:
 
 <!-- tutorial-output-monitor -->
 ```text
@@ -361,37 +363,37 @@ python "dev.Reset(); print(list(dev.Read(1)))"
 sysbus.led0 State
 ```
 
-**Saída esperada:** `[254]` e `True` após a escrita; `[255]` e `False` após o reset. O bit P0 baixo acende o LED0.
+**Expected output:** `[254]` and `True` after the write; `[255]` and `False` after reset. A low P0 bit turns LED0 on.
 
-Essas chamadas a `Read` e `Write` testam diretamente as funções do modelo C#, não são uma transação I2C. Digite `quit` antes de modificar a plataforma.
+These `Read` and `Write` calls test the C# model functions directly; they are not an I2C transaction. Enter `quit` before changing the platform.
 
-## 4. Conectar ao I2C do STM32
+## 4. Connect to the STM32 I2C controller
 
-Crie `platforms/stm32.repl` para importar o STM32F4 distribuído com o Renode:
+Create `platforms/stm32.repl` to import the STM32F4 platform distributed with Renode:
 
 <!-- tutorial-file: platforms/stm32.repl -->
 ```text
 using "platforms/cpus/stm32f4.repl"
 ```
 
-Essa definição fornece a CPU e os periféricos internos do STM32, incluindo o controlador `i2c1`.
+This definition provides the CPU and the STM32's internal peripherals, including the `i2c1` controller.
 
-### Consultar os periféricos disponíveis no STM32
+### Inspect the peripherals available on the STM32
 
-Antes de conectar o PCF8574, abra uma sessão vazia do Renode, no terminal e na raiz do tutorial:
+Before connecting the PCF8574, open an empty Renode session from a terminal in the tutorial root:
 
 ```sh
 renode --console --disable-gui --plain
 ```
 
-No **Monitor**, crie uma máquina para inspecionar o STM32:
+In the **Monitor**, create a machine for inspecting the STM32:
 
 <!-- tutorial-stm32-monitor -->
 ```text
 mach create "stm32-inspect"
 ```
 
-Carregue apenas a definição do STM32 que acabamos de criar, sem o PCF8574:
+Load only the STM32 definition you just created, without the PCF8574:
 
 **Windows:**
 
@@ -407,36 +409,36 @@ machine LoadPlatformDescription @platforms\stm32.repl
 machine LoadPlatformDescription @platforms/stm32.repl
 ```
 
-Consulte os periféricos da máquina selecionada:
+List the selected machine's peripherals:
 
 <!-- tutorial-stm32-monitor -->
 ```text
 peripherals
 ```
 
-O comando mostra a árvore de dispositivos carregados nessa máquina, não um catálogo de todos os modelos disponíveis no Renode. Entre os periféricos do STM32, deve aparecer uma entrada `i2c1` iniciada no endereço `0x40005400`, semelhante a:
+The command shows the tree of devices loaded in this machine, not a catalog of every model available in Renode. The STM32 peripherals should include an `i2c1` entry starting at address `0x40005400`, similar to:
 
 ```text
 i2c1 (STM32F1_I2C)
     <0x40005400, 0x4000543F>
 ```
 
-O nome do tipo e o fim do intervalo podem variar entre builds do Renode 1.16.1; por exemplo, a distribuição do Windows pode mostrar `STM32F4_I2C` e `<0x40005400, 0x400057FF>`. `i2c1` é o nome estável da instância do controlador I2C1 na definição importada. Por isso podemos usá-lo como destino da conexão do PCF8574. O intervalo mostrado corresponde aos registradores do controlador na memória do STM32, não ao endereço I2C do expansor.
+The type name and end of the range can vary between Renode 1.16.1 builds; for example, the Windows distribution may show `STM32F4_I2C` and `<0x40005400, 0x400057FF>`. `i2c1` is the stable instance name of the I2C1 controller in the imported definition, so it can be used as the destination of the PCF8574 connection. The displayed range belongs to the controller registers in STM32 memory, not to the expander's I2C address.
 
-**Verificação:** `i2c1` deve existir, ainda sem `pcf8574` abaixo dele. Digite `quit` para encerrar essa sessão de inspeção antes de continuar.
+**Check:** `i2c1` should exist, with no `pcf8574` beneath it yet. Enter `quit` to close this inspection session before continuing.
 
-### Registrar o PCF8574 no controlador
+### Register the PCF8574 with the controller
 
-Em `platforms/pcf8574.repl`, troque **somente a primeira linha**, mantendo o `preinit` e todas as conexões de LEDs e botões:
+In `platforms/pcf8574.repl`, replace **only the first line**, preserving `preinit` and all LED and button connections:
 
 <!-- tutorial-registration: platforms/pcf8574.repl -->
 ```text
 pcf8574: Tutorial.PCF8574 @ i2c1 0x20
 ```
 
-Agora `@ i2c1` registra o PCF8574 como dispositivo no **controlador I2C1 do STM32**. `0x20` é o endereço I2C de sete bits escolhido para o PCF8574, correspondente aos pinos A2, A1 e A0 em zero. Não é um endereço da memória do STM32. Referência: seção 7.3.3 do [datasheet](https://www.ti.com/lit/ds/symlink/pcf8574.pdf).
+`@ i2c1` now registers the PCF8574 as a device on the **STM32 I2C1 controller**. `0x20` is the seven-bit I2C address selected for the PCF8574, corresponding to A2, A1, and A0 tied low. It is not an STM32 memory address. See section 7.3.3 of the [datasheet](https://www.ti.com/lit/ds/symlink/pcf8574.pdf).
 
-Atualize `scripts/platform.resc` para carregar o STM32 **antes** do PCF8574, pois `i2c1` precisa existir:
+Update `scripts/platform.resc` to load the STM32 **before** the PCF8574 because `i2c1` must already exist:
 
 <!-- tutorial-update: scripts/platform.resc -->
 ```text
@@ -447,9 +449,9 @@ machine LoadPlatformDescription @platforms/pcf8574.repl
 cpu PerformanceInMips 100
 ```
 
-`PerformanceInMips` configura a taxa de execução simulada da CPU; não é o clock do SysTick.
+`PerformanceInMips` configures the simulated CPU execution rate; it is not the SysTick clock.
 
-### Verificar a conexão
+### Check the connection
 
 **Terminal:**
 
@@ -457,14 +459,14 @@ cpu PerformanceInMips 100
 renode --console --disable-gui --plain scripts/platform.resc
 ```
 
-No **Monitor**, consulte novamente a árvore de periféricos:
+In the **Monitor**, list the peripheral tree again:
 
 <!-- tutorial-i2c-monitor -->
 ```text
 peripherals
 ```
 
-**Saída esperada (trecho):** agora `pcf8574` aparece abaixo de `i2c1`, indicando que está registrado nesse controlador:
+**Expected output (excerpt):** `pcf8574` now appears under `i2c1`, showing that it is registered with that controller:
 
 ```text
 i2c1 (STM32F4_I2C)
@@ -473,39 +475,39 @@ i2c1 (STM32F4_I2C)
         Address: 32
 ```
 
-`Address: 32` mostra em decimal o endereço I2C `0x20` definido no REPL. Não confunda esse endereço com o intervalo de memória do controlador mostrado acima.
+`Address: 32` shows the REPL's `0x20` I2C address in decimal. Do not confuse it with the controller memory range shown above.
 
-Para consultar o estado inicial do expansor, use seu novo caminho na árvore:
+Use the expander's new path in the tree to read its initial state:
 
 <!-- tutorial-i2c-monitor -->
 ```text
 python "dev = monitor.Machine['sysbus.i2c1.pcf8574']; print(list(dev.Read(1)))"
 ```
 
-**Saída esperada:** `[255]`. O caminho mudou de `sysbus.pcf8574` para `sysbus.i2c1.pcf8574`, acompanhando a nova conexão.
+**Expected output:** `[255]`. The path changed from `sysbus.pcf8574` to `sysbus.i2c1.pcf8574` to reflect the new connection.
 
-Isso verifica a montagem da plataforma. A CPU ainda não executou firmware; a comunicação I2C pelo mestre será testada na próxima seção. Digite `quit`.
+This checks the platform assembly. The CPU has not run any firmware yet; master-side I2C communication is tested in the next section. Enter `quit`.
 
-## 5. Executar o firmware STM32
+## 5. Run the STM32 firmware
 
-O firmware fornecido foi gerado a partir do STM32CubeMX para a placa **STM32F407G-DISC1**, MCU **STM32F407VGTx**, com HAL. O projeto completo está em [firmware](firmware), com o [arquivo CubeMX](firmware/pcf8574-demo.ioc) e o [main.c](firmware/Core/Src/main.c).
+The supplied firmware was generated with STM32CubeMX for the **STM32F407G-DISC1** board, **STM32F407VGTx** MCU, using HAL. The complete project is in [firmware](firmware), including the [CubeMX file](firmware/pcf8574-demo.ioc) and [main.c](firmware/Core/Src/main.c).
 
-A aplicação inicializa o port em `0xFF`, mantém P4..P7 liberados para entrada e alterna um LED a cada 250 ms, percorrendo P0..P3. A sequência acende P0, P1, P2, P3 e depois apaga P0, P1, P2, P3. Mudanças das entradas são impressas na USART2.
+The application initializes the port to `0xFF`, keeps P4..P7 released for input, and toggles one LED every 250 ms while cycling through P0..P3. The sequence turns on P0, P1, P2, P3, then turns off P0, P1, P2, P3. Input changes are printed through USART2.
 
-Os trechos abaixo já fazem parte do [main.c](firmware/Core/Src/main.c) fornecido; não é necessário adicioná-los para executar o ELF do tutorial.
+The excerpts below are already part of the supplied [main.c](firmware/Core/Src/main.c); you do not need to add them to run the tutorial ELF.
 
-### Usar os pinos como entradas e saídas
+### Use the pins as inputs and outputs
 
-Como implementamos na [seção 2](#2-implementar-o-pcf8574), o PCF8574 tem pinos **quase bidirecionais**, sem registrador de direção. Não há um comando separado para configurar `input` ou `output`:
+As implemented in [section 2](#2-implement-the-pcf8574), the PCF8574 has **quasi-bidirectional** pins and no direction register. There is no separate command for configuring `input` or `output`:
 
-| Bit escrito no port | Efeito no pino | Uso neste firmware |
+| Bit written to the port | Effect on the pin | Use in this firmware |
 | --- | --- | --- |
-| `0` | Força nível baixo | Acender um LED em P0..P3, ligado como ativo em nível baixo |
-| `1` | Libera o pino com pull-up fraco; um sinal externo pode levá-lo a zero | Apagar um LED ou permitir a leitura de um botão em P4..P7 |
+| `0` | Forces a low level | Turn on an active-low LED on P0..P3 |
+| `1` | Releases the pin with a weak pull-up; an external signal can pull it low | Turn off an LED or allow a button to be read on P4..P7 |
 
-Portanto, escrever `1` não seleciona um modo exclusivo de entrada, nem produz uma saída alta forte. A função do pino depende também do circuito conectado. Esse é o comportamento da figura 7-2 do [datasheet](https://www.ti.com/lit/ds/symlink/pcf8574.pdf), representado no modelo por `outputLatch & externalLevels`.
+Writing `1` therefore does not select an exclusive input mode or produce a strong high output. The pin's function also depends on the connected circuit. This is the behavior in Figure 7-2 of the [datasheet](https://www.ti.com/lit/ds/symlink/pcf8574.pdf), represented in the model by `outputLatch & externalLevels`.
 
-As constantes do firmware definem o endereço do expansor e quais bits devem permanecer liberados:
+The firmware constants define the expander address and which bits must remain released:
 
 <!-- tutorial-firmware-excerpt -->
 ```c
@@ -513,11 +515,11 @@ As constantes do firmware definem o endereço do expansor e quais bits devem per
 #define INPUT_MASK 0xF0U
 ```
 
-`INPUT_MASK` vale `11110000` em binário: mantém P4..P7 em `1` a cada escrita. P0..P3 recebem os níveis desejados dos LEDs. A HAL recebe o endereço de sete bits deslocado uma posição (`0x20 << 1`); no REPL, o endereço continua sendo `0x20`.
+`INPUT_MASK` is `11110000` in binary: it keeps P4..P7 at `1` on every write. P0..P3 receive the desired LED levels. HAL takes the seven-bit address shifted left by one position (`0x20 << 1`); in the REPL, the address remains `0x20`.
 
-### Inicializar e acessar o expansor por I2C
+### Initialize and access the expander over I2C
 
-A função `write_port` envia um byte pelo I2C1 do STM32:
+The `write_port` function sends one byte through the STM32 I2C1 controller:
 
 <!-- tutorial-firmware-excerpt -->
 ```c
@@ -530,9 +532,9 @@ static void write_port(uint8_t value)
 }
 ```
 
-O `1` é a quantidade de bytes, e `100U` é o timeout em milissegundos. Não enviamos um endereço de registrador: o byte representa os oito pinos. Na simulação, a transação passa pelo modelo do I2C1 e chega ao `Write` do PCF8574, que atualiza `outputLatch` e os conectores dos LEDs. Não é uma chamada direta do firmware ao código C#.
+`1` is the byte count, and `100U` is the timeout in milliseconds. No register address is sent: the byte represents all eight pins. In the simulation, the transaction passes through the I2C1 model and reaches the PCF8574's `Write`, which updates `outputLatch` and the LED connectors. The firmware does not call the C# code directly.
 
-Após inicializar I2C1 e USART2, `main` chama esta validação:
+After initializing I2C1 and USART2, `main` calls this validation:
 
 <!-- tutorial-firmware-excerpt -->
 ```c
@@ -547,11 +549,11 @@ static void validate_pcf8574(void)
 }
 ```
 
-`0xFF` libera todos os pinos: os quatro LEDs começam apagados e os botões podem alterar os níveis de entrada. A conferência usa `0x0F` para verificar apenas P0..P3, pois um botão pressionado durante a inicialização pode legitimamente fazer P4..P7 retornar zero. `read_port` usa `HAL_I2C_Master_Receive` para receber um byte, chegando ao `Read` do modelo.
+`0xFF` releases every pin: all four LEDs start off, and the buttons can change the input levels. The check uses `0x0F` to inspect only P0..P3 because a button held during initialization may legitimately make a P4..P7 bit return zero. `read_port` uses `HAL_I2C_Master_Receive` to receive one byte, ultimately reaching the model's `Read` method.
 
-### Alternar um LED a cada 250 ms
+### Toggle one LED every 250 ms
 
-Antes do `while`, o firmware prepara o estado dos LEDs e a referência de tempo:
+Before the `while` loop, the firmware prepares the LED state and time reference:
 
 <!-- tutorial-firmware-excerpt -->
 ```c
@@ -561,7 +563,7 @@ uint8_t previousInputs = 0xFFU;  // Sentinel: also print the first sample.
 uint32_t lastToggle = HAL_GetTick();
 ```
 
-Dentro do laço, este bloco alterna um único pino por intervalo:
+Inside the loop, this block toggles one pin per interval:
 
 <!-- tutorial-firmware-excerpt -->
 ```c
@@ -576,13 +578,13 @@ if((uint32_t)(HAL_GetTick() - lastToggle) >= 250U)
 }
 ```
 
-O XOR (`^=`) inverte somente o bit do LED selecionado; o módulo `% 4` percorre P0, P1, P2 e P3 repetidamente. Os bytes escritos começam em `0xFF` e seguem `0xFE`, `0xFC`, `0xF8`, `0xF0`: um LED adicional acende a cada passo. Depois seguem `0xF1`, `0xF3`, `0xF7`, `0xFF`, apagando um por vez.
+XOR (`^=`) flips only the selected LED bit; modulo `% 4` cycles through P0, P1, P2, and P3 repeatedly. Written bytes start at `0xFF`, followed by `0xFE`, `0xFC`, `0xF8`, and `0xF0`: one additional LED turns on at each step. Then `0xF1`, `0xF3`, `0xF7`, and `0xFF` turn them off one at a time.
 
-O OR com `INPUT_MASK` preserva P4..P7 liberados, independentemente dos botões pressionados. **Não usamos a leitura do port como base da escrita:** copiar um zero observado em um botão para o latch faria o próprio PCF8574 manter esse pino baixo mesmo depois de soltar o botão.
+OR with `INPUT_MASK` keeps P4..P7 released regardless of the pressed buttons. **The port reading is not used as the basis for a write:** copying an observed button zero into the latch would make the PCF8574 itself hold that pin low even after the button was released.
 
-### Ler os botões e imprimir mudanças
+### Read the buttons and print changes
 
-Também dentro do `while`, a leitura separa os quatro bits de entrada:
+Also inside the `while` loop, the read separates the four input bits:
 
 <!-- tutorial-firmware-excerpt -->
 ```c
@@ -596,17 +598,17 @@ if(inputs != previousInputs)
 }
 ```
 
-O deslocamento `>> 4` coloca P4..P7 nos quatro bits inferiores; a máscara `0x0F` mantém apenas esse grupo. `print_line` transmite pela USART2, e a comparação evita repetir mensagens enquanto as entradas não mudam. O valor inicial `previousInputs = 0xFF` garante que a primeira amostra seja impressa. O laço termina com `HAL_Delay(5U)`, permitindo consultar os botões entre as alternâncias dos LEDs, sem esperar 250 ms para cada leitura.
+The `>> 4` shift moves P4..P7 into the lower four bits; the `0x0F` mask keeps only that group. `print_line` transmits through USART2, and the comparison avoids repeating messages while the inputs remain unchanged. The initial `previousInputs = 0xFF` value ensures that the first sample is printed. The loop ends with `HAL_Delay(5U)`, allowing buttons to be checked between LED toggles without waiting 250 ms for every read.
 
-Isso fecha o caminho apresentado na seção 2: pressionar um botão chama `OnGPIO`, que altera `externalLevels`; como o bit correspondente de `outputLatch` permanece em `1`, o `Read` retorna o nível externo. Solto, o botão é lido como `1`; pressionado, como `0`.
+This completes the path introduced in section 2: pressing a button calls `OnGPIO`, which changes `externalLevels`; because the corresponding `outputLatch` bit remains `1`, `Read` returns the external level. A released button reads as `1`; a pressed button reads as `0`.
 
-**O que conferir ao executar abaixo:** sem botões pressionados, a UART deve mostrar `INPUT P7..P4=0xF`. Ao pressionar apenas P4, deve mostrar `0xE`; ao soltar, `0xF` novamente. Os LEDs devem continuar alternando independentemente dessas mudanças.
+**What to check when running the steps below:** with no buttons pressed, UART should show `INPUT P7..P4=0xF`. Pressing only P4 should show `0xE`; releasing it should show `0xF` again. The LEDs should continue toggling independently of these changes.
 
-### Sobrescrever a configuração do SysTick
+### Override the SysTick configuration
 
-O firmware configura SYSCLK e HCLK em **168 MHz**, enquanto a plataforma `stm32f4.repl` do Renode 1.16.1 define `systickFrequency` em **72 MHz**. É necessário alinhar esse parâmetro para que os intervalos calculados pelo firmware tenham a duração esperada na simulação.
+The firmware configures SYSCLK and HCLK at **168 MHz**, while the Renode 1.16.1 `stm32f4.repl` platform defines `systickFrequency` as **72 MHz**. This parameter must be aligned so that firmware-calculated intervals have the expected duration in the simulation.
 
-Substitua o conteúdo de `platforms/stm32.repl` por:
+Replace the contents of `platforms/stm32.repl` with:
 
 <!-- tutorial-update: platforms/stm32.repl -->
 ```text
@@ -616,13 +618,13 @@ nvic:
     systickFrequency: 168000000
 ```
 
-O `using` importa a definição original; o bloco `nvic:` sobrescreve apenas o atributo indicado do dispositivo já declarado nessa definição. Os demais atributos são preservados, sem editar os arquivos da instalação do Renode.
+`using` imports the original definition; the `nvic:` block overrides only the specified attribute of the device already declared there. All other attributes are preserved without editing files in the Renode installation.
 
-Esse ajuste é aplicado durante a criação da plataforma. Encerre a sessão anterior e carregue uma nova após alterar o arquivo. Na seção 3 não havia CPU; na seção 4 ela ainda não executava firmware. Esses testes não dependiam dessa frequência.
+This adjustment is applied while creating the platform. Close the previous session and load a new one after changing the file. Section 3 had no CPU, and in section 4 the CPU was not running firmware yet; those tests did not depend on this frequency.
 
-### Carregar o binário
+### Load the binary
 
-Crie `scripts/demo.resc`:
+Create `scripts/demo.resc`:
 
 <!-- tutorial-file: scripts/demo.resc -->
 ```text
@@ -631,9 +633,9 @@ sysbus LoadELF @firmware/demo.elf
 showAnalyzer sysbus.usart2
 ```
 
-O script carrega a plataforma com `include`, carrega o **firmware já compilado e disponibilizado** em `firmware/demo.elf` com `LoadELF` e abre a saída da USART2 com `showAnalyzer`. Não é preciso compilar para executar esta demo. Confira que o arquivo contém as três linhas antes de iniciar o Renode.
+The script loads the platform with `include`, loads the **supplied precompiled firmware** from `firmware/demo.elf` with `LoadELF`, and opens the USART2 output with `showAnalyzer`. You do not need to compile anything to run this demo. Check that the file contains all three lines before starting Renode.
 
-### Verificar o firmware
+### Check the firmware
 
 **Terminal:**
 
@@ -641,151 +643,151 @@ O script carrega a plataforma com `include`, carrega o **firmware já compilado 
 renode --console --disable-gui --plain scripts/demo.resc
 ```
 
-Em um Monitor vazio, o equivalente é `include @scripts/demo.resc`.
+In an empty Monitor, the equivalent command is `include @scripts/demo.resc`.
 
-No **Monitor**, use uma sessão nova, sem executar `start` antes. Execute os blocos abaixo separadamente.
+Use a new **Monitor** session and do not run `start` first. Run each block below separately.
 
-Avance 270 ms de tempo virtual para inicializar o firmware e alcançar a primeira alternância:
+Advance 270 ms of virtual time to initialize the firmware and reach the first toggle:
 
 <!-- tutorial-monitor -->
 ```text
 emulation RunFor "0.270"
 ```
 
-Na UART, confira a mensagem `PCF8574 ready` e `INPUT P7..P4=0xF`, com os botões soltos. Consulte o LED conectado a P0:
+With all buttons released, check UART for the messages `PCF8574 ready` and `INPUT P7..P4=0xF`. Then read the LED connected to P0:
 
 <!-- tutorial-monitor -->
 ```text
 sysbus.led0 State
 ```
 
-**Esperado:** `True` (LED aceso).
+**Expected:** `True` (LED on).
 
-Pressione o botão ligado a P4; `button4` é o nome definido no REPL:
+Press the button connected to P4; `button4` is the name defined in the REPL:
 
 <!-- tutorial-monitor -->
 ```text
 sysbus.button4 Press
 ```
 
-Avance o tempo para entregar o sinal e permitir a leitura pelo firmware:
+Advance time to deliver the signal and let the firmware read it:
 
 <!-- tutorial-monitor -->
 ```text
 emulation RunFor "0.100"
 ```
 
-**Esperado na UART:** `INPUT P7..P4=0xE`. Consulte também o byte completo do modelo:
+**Expected on UART:** `INPUT P7..P4=0xE`. Also read the model's complete byte:
 
 <!-- tutorial-monitor -->
 ```text
 python "print(list(monitor.Machine['sysbus.i2c1.pcf8574'].Read(1)))"
 ```
 
-**Esperado:** `[238]` (`0xEE`): P4 está baixo e P0 continua baixo, mantendo LED0 aceso. Esta consulta chama `Read` diretamente; a mensagem UART acima veio da leitura I2C realizada pelo firmware.
+**Expected:** `[238]` (`0xEE`): P4 is low and P0 remains low, keeping LED0 on. This query calls `Read` directly; the UART message above came from the firmware's I2C read.
 
-Solte o mesmo botão:
+Release the same button:
 
 <!-- tutorial-monitor -->
 ```text
 sysbus.button4 Release
 ```
 
-Avance mais 100 ms:
+Advance another 100 ms:
 
 <!-- tutorial-monitor -->
 ```text
 emulation RunFor "0.100"
 ```
 
-**Esperado na UART:** `INPUT P7..P4=0xF`. Confira a leitura novamente:
+**Expected on UART:** `INPUT P7..P4=0xF`. Read the value again:
 
 <!-- tutorial-monitor -->
 ```text
 python "print(list(monitor.Machine['sysbus.i2c1.pcf8574'].Read(1)))"
 ```
 
-**Esperado:** `[254]` (`0xFE`): P4 voltou a alto; LED0 permanece aceso. O tempo acumulado é 470 ms, ainda antes da segunda alternância.
+**Expected:** `[254]` (`0xFE`): P4 returned high; LED0 remains on. Accumulated time is 470 ms, still before the second toggle.
 
-`RunFor` executa o intervalo de tempo virtual solicitado e para. Para execução contínua, use `start`; para interromper, `pause`. Saia com `quit`.
+`RunFor` executes the requested virtual-time interval and stops. Use `start` for continuous execution and `pause` to interrupt it. Exit with `quit`.
 
-### Recompilar com STM32CubeIDE (opcional)
+### Rebuild with STM32CubeIDE (optional)
 
-Se quiser **editar o firmware da demo**, importe a pasta `firmware` do repositório original em `File > Import > STM32CubeMX/STM32CubeIDE Project`. Edite, por exemplo, `Core/Src/main.c` e compile `pcf8574-demo` em `Debug`.
+To **edit the demo firmware**, import the original repository's `firmware` directory through `File > Import > STM32CubeMX/STM32CubeIDE Project`. Edit `Core/Src/main.c`, for example, and build `pcf8574-demo` in `Debug`.
 
-Em seguida, edite a linha `sysbus LoadELF` de **`scripts/demo.resc`** para apontar para o novo binário. É o script que recebe o caminho, não o arquivo `.elf`. Exemplo com caminho relativo à pasta `meu-pcf8574`:
+Then edit the `sysbus LoadELF` line in **`scripts/demo.resc`** to point to the new binary. The path belongs in the script, not in the `.elf` file. Example path relative to the `my-pcf8574` directory:
 
 ```text
 sysbus LoadELF @../renode-pcf8574-tutorial/firmware/Debug/pcf8574-demo.elf
 ```
 
-Ajuste o caminho se o projeto estiver em outra pasta. Como alternativa, mantenha `demo.resc` inalterado e substitua o ELF da demo, executando na pasta `meu-pcf8574`:
+Adjust the path if the project is in a different directory. Alternatively, leave `demo.resc` unchanged and replace the demo ELF by running this in `my-pcf8574`:
 
 ```powershell
-Copy-Item "$referencia/firmware/Debug/pcf8574-demo.elf" firmware/demo.elf
+Copy-Item "$reference/firmware/Debug/pcf8574-demo.elf" firmware/demo.elf
 ```
 
-No Bash: `cp "$referencia/firmware/Debug/pcf8574-demo.elf" firmware/demo.elf`. Se reabriu o terminal, redefina `referencia` com o caminho do repositório original. Reinicie o Renode e repita a verificação anterior.
+On Bash: `cp "$reference/firmware/Debug/pcf8574-demo.elf" firmware/demo.elf`. If you reopened the terminal, redefine `reference` with the original repository path. Restart Renode and repeat the previous check.
 
-**Alternativa sem IDE:** com a Arm GNU Toolchain no PATH, execute na raiz do repositório original:
+**IDE-free alternative:** with Arm GNU Toolchain on the PATH, run this from the original repository root:
 
 ```sh
 python tools/build_firmware.py
 ```
 
-O script opcional gera `firmware/demo.elf` nesse repositório; a opção `--gcc "caminho/do/arm-none-eabi-gcc"` permite indicar o compilador. Aponte `LoadELF` para esse arquivo ou copie-o para o `firmware/demo.elf` do exercício. Reinicie o Renode após recompilar.
+The optional script generates `firmware/demo.elf` in that repository; use `--gcc "path/to/arm-none-eabi-gcc"` to select the compiler. Point `LoadELF` to that file or copy it to the exercise's `firmware/demo.elf`. Restart Renode after rebuilding.
 
-O ELF incluído foi compilado com Arm GCC 14.3 por esse auxiliar. A importação gráfica no CubeIDE ainda não foi validada neste projeto.
+The included ELF was built with Arm GCC 14.3 using this helper. The graphical CubeIDE import has not yet been validated for this project.
 
-## 6. Painel web (vibe coded)
+## 6. Web panel (vibe coded)
 
-Encerre o Monitor e execute no **Terminal**:
+Close the Monitor and run this in the **Terminal**:
 
 ```sh
 python tools/lab.py
 ```
 
-O painel abre em [localhost:8000](http://127.0.0.1:8000). Clique em um botão para pressionar e novamente para soltar. Os LEDs exibem os estados dos modelos do Renode; o terminal apresenta os caracteres enviados pelo firmware na USART2.
+The panel opens at [localhost:8000](http://127.0.0.1:8000). Click a button once to press it and again to release it. The LEDs show the Renode model states; the terminal shows the characters sent by the firmware through USART2.
 
 ```text
-Navegador --HTTP--> Python 3 --XML-RPC--> Renode
+Browser --HTTP--> Python 3 --XML-RPC--> Renode
 ```
 
-O painel é específico deste exemplo. Usa o [servidor remoto de testes do Renode](https://renode.readthedocs.io/en/latest/introduction/testing.html), compatível com Robot Framework, sem exigir sua instalação. `scripts/bridge.py` é executado pelo Python embutido do Renode para consultar os LEDs e capturar a UART; não deve ser executado diretamente com Python 3.
+The panel is specific to this example. It uses the [Renode remote test server](https://renode.readthedocs.io/en/latest/introduction/testing.html), which is compatible with Robot Framework without requiring it to be installed. `scripts/bridge.py` runs in Renode's embedded Python to inspect the LEDs and capture UART; do not run it directly with Python 3.
 
-**Verificação sugerida:**
+**Suggested check:**
 
-| Ação | Resultado esperado |
+| Action | Expected result |
 | --- | --- |
-| Pressionar P4 | UART: `INPUT P7..P4=0xE` |
-| Manter P4 e pressionar P7 | UART: `INPUT P7..P4=0x6` |
-| Soltar ambos | UART termina em `INPUT P7..P4=0xF` |
-| Pausar e avançar 250 ms | Um LED muda de estado por passo |
+| Press P4 | UART: `INPUT P7..P4=0xE` |
+| Hold P4 and press P7 | UART: `INPUT P7..P4=0x6` |
+| Release both | UART ends with `INPUT P7..P4=0xF` |
+| Pause and advance 250 ms | One LED changes state per step |
 
-O efeito de um botão acionado enquanto pausado aparece no próximo avanço. Encerre com `Ctrl+C` no terminal.
+The effect of a button operated while paused appears on the next step. Stop the panel with `Ctrl+C` in the terminal.
 
-## Testes automatizados (vibe coded)
+## Automated tests (vibe coded)
 
-Na pasta do projeto:
+From the project directory:
 
 ```sh
 python tests/check.py all
 ```
 
-São esperadas as linhas `PASS model:` e `PASS firmware:`. O primeiro teste verifica o modelo isolado; o segundo executa o firmware e verifica LEDs, botões e UART.
+Expect the lines `PASS model:` and `PASS firmware:`. The first test checks the isolated model; the second runs the firmware and checks LEDs, buttons, and UART.
 
-## Limitações e diagnóstico
+## Limitations and troubleshooting
 
-O modelo não implementa `INT`, correntes, curtos, temporização elétrica do I2C ou resolução de múltiplos drivers no mesmo pino. Trata-se de uma simulação funcional digital, não de equivalência elétrica completa ao CI.
+The model does not implement `INT`, currents, short circuits, electrical I2C timing, or resolution of multiple drivers on the same pin. It is a functional digital simulation, not a complete electrical equivalent of the IC.
 
-| Problema | Ajuste |
+| Problem | Fix |
 | --- | --- |
-| Renode não encontrado | Adicione a instalação ao PATH. No PowerShell, a alternativa é `& "C:/Program Files/Renode/renode.exe"`; nos auxiliares Python, use `--renode "caminho/do/executavel"` |
-| Arquivo não encontrado | Execute na pasta `meu-pcf8574`; confira os nomes e extensões |
-| Avisos de `flash_controller`, `rcc` ou `SYSCFG` no boot | Ocorrem nesta plataforma com a inicialização HAL; confira as leituras, o LED e a UART descritos na etapa 5 |
-| Porta 8000 ocupada | Use `python tools/lab.py --port 8001` |
-| Mudança no modelo ou ELF sem efeito | Encerre e abra uma nova sessão |
-| Botão sem efeito | Avance o tempo virtual e confira se P4..P7 estão liberados |
-| Tempo dos LEDs incorreto | Confira o SysTick de 168 MHz |
+| Renode not found | Add the installation to PATH. In PowerShell, an alternative is `& "C:/Program Files/Renode/renode.exe"`; for the Python helpers, use `--renode "path/to/executable"` |
+| File not found | Run from the `my-pcf8574` directory and check names and extensions |
+| `flash_controller`, `rcc`, or `SYSCFG` warnings during boot | These occur on this platform during HAL initialization; check the reads, LED, and UART described in step 5 |
+| Port 8000 already in use | Use `python tools/lab.py --port 8001` |
+| Model or ELF change has no effect | Close the session and open a new one |
+| Button has no effect | Advance virtual time and check that P4..P7 are released |
+| Incorrect LED timing | Check the 168 MHz SysTick setting |
 
-Validado no Windows e no Linux com Renode 1.16.1. No Linux, use `python3` nos comandos do Terminal caso o executável `python` não esteja disponível.
+Validated on Windows and Linux with Renode 1.16.1. On Linux, use `python3` in Terminal commands if the `python` executable is unavailable.
