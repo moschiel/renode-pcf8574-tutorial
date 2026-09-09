@@ -10,7 +10,7 @@ Para testar o caso de uso, o **PCF8574 é conectado ao I2C de um STM32F407**. O 
 
 > **Escopo:** o foco deste tutorial é como criar um modelo básico de periférico a partir do datasheet e demonstrar seu uso com um STM32. Recursos no projeto fora desse escopo foram 100% *vibe coded* (interface gráfica (painel web), testes automatizados com Python/RobotFramework, entre outros).
 
-![Diagrama do modelo PCF8574 conectado ao STM32F407](figures/model.jpg)
+![Diagrama do modelo PCF8574 conectado ao STM32F407](figures/model.png)
 
 
 ```text

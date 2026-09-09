@@ -10,7 +10,7 @@ To demonstrate the use case, the **PCF8574 is connected to an STM32F407 over I2C
 
 > **Scope:** this tutorial focuses on creating a basic peripheral model from the datasheet and demonstrating it with an STM32. Project features outside this scope were 100% *vibe coded* (the web GUI, automated Python/Robot Framework tests, and others).
 
-![Diagram of the PCF8574 model connected to an STM32F407](figures/model.jpg)
+![Diagram of the PCF8574 model connected to an STM32F407](figures/model.png)
 
 
 ```text
