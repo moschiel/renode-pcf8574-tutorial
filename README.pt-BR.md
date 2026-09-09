@@ -25,9 +25,9 @@ STM32 USART2 -----------------------> Terminal UART
 
 ## 1. Preparar o projeto
 
-Requisitos: [Renode 1.16.1](https://renode.readthedocs.io/en/latest/introduction/installing.html), Python 3.10 ou superior e um editor. O Renode compila o modelo C# durante o carregamento; não é necessário instalar um SDK .NET separado. Os auxiliares usam apenas a biblioteca padrão do Python.
+Requisitos: [Renode 1.16.1](https://renode.readthedocs.io/en/latest/introduction/installing.html), Python 3.10 ou superior.
 
-Baixe ou clone este repositório. Abra um terminal na raiz dele e crie uma pasta irmã chamada `my-pcf8574`. Os comandos transferem apenas o firmware e os auxiliares de interface e testes; o modelo e a plataforma serão criados nas próximas etapas. Use outro nome se a pasta de destino já existir.
+Este repositório já tem o projeto pronto, mas para seguir o tutorial, crie uma nova pasta chamada `my-pcf8574`. Os comandos abaixo transferem para a paste o firmware e os auxiliares de interface e testes; o modelo e a plataforma serão criados por você nas próximas etapas.
 
 **Windows / PowerShell:**
 
@@ -82,7 +82,7 @@ O comportamento implementado segue este recorte do [datasheet TI PCF8574, revis�
 
 Não há registrador de direção: escrever `1` permite usar o pino como entrada. Neste modelo digital, o nível lógico observado é ditado no código pela operação `outputLatch & externalLevels`. Correntes, resistências, entre outras características elétricas não são simuladas.
 
-**Escritas sucessivas:** a seção 7.3.1 da datasheet afirma que bytes adicionais na mesma transação são ignorados, mas a figura 7-3 mostra dois bytes atualizando o port. O `foreach` abaixo adota o comportamento do diagrama; essa é uma escolha do modelo diante da divergência, não uma conclusão inequívoca do texto. O firmware envia um byte por transação. Transações separadas continuam podendo atualizar o port normalmente.
+**Escritas sucessivas:** a seção 7.3.1 da datasheet afirma que bytes adicionais na mesma escrita são ignorados, mas a figura 7-3 mostra dois bytes atualizando o port. O `foreach` abaixo adota o comportamento do diagrama; essa é uma escolha do modelo diante da divergência. O firmware envia um byte por transação. Transações separadas continuam podendo atualizar o port normalmente.
 
 Crie `models/PCF8574.cs`:
 
@@ -189,7 +189,7 @@ namespace Antmicro.Renode.Peripherals.Tutorial
 }
 ```
 
-`II2CPeripheral` atende o barramento I2C; `IGPIOReceiver` recebe mudanças externas dos botões; `INumberedGPIOOutput` expõe os oito conectores de saída, usados pelos LEDs neste exemplo. Esses contratos separam o [comportamento do periférico](https://renode.readthedocs.io/en/latest/advanced/writing-peripherals.html) das conexões da plataforma.
+`II2CPeripheral` atende o barramento I2C; `IGPIOReceiver` recebe mudanças externas dos botões; `INumberedGPIOOutput` expõe os oito conectores de saída, usados pelos LEDs/botões neste exemplo. Esses contratos separam o [comportamento do periférico](https://renode.readthedocs.io/en/latest/advanced/writing-peripherals.html) das conexões da plataforma.
 
 O latch guarda o comando do mestre (Nesse exemplo um STM32), enquanto `externalLevels` guarda o sinal externo. `OnGPIO` altera um bit desse sinal e `UpdatePinLevels` publica o resultado nos conectores. O reset não solta um botão que continua pressionado externamente.
 
@@ -210,11 +210,11 @@ include @models/PCF8574.cs
 O Renode deve carregar `PCF8574.cs` e retornar ao prompt `(monitor)` sem erros de compilação. Digite `quit` para sair. Isso verifica a compilação; a próxima etapa instancia o dispositivo para verificar seu comportamento.
 
 
-## 3. Arquivos .repl/.resc, Conectando o modelo a LEDs e botões
+## 3. Arquivos .repl/.resc - Conectando o modelo a LEDs e botões
 
 Um arquivo **`.repl` descreve uma plataforma do Renode**: quais modelos instanciar, seus parâmetros e suas conexões. Um arquivo **`.resc`, são scripts do Renode**, reunindo comandos do Monitor do Renode para montar e executar uma sessão.
 
-Nesta etapa, a máquina terá **somente o PCF8574, quatro LEDs e quatro botões**, sem STM32, controlador I2C ou qualquer firmware para executar.
+Nesta etapa, a máquina terá **somente o PCF8574, quatro LEDs e quatro botões**.
 
 Crie `platforms/pcf8574.repl`:
 
@@ -259,10 +259,10 @@ button7: Miscellaneous.Button @ sysbus
 | `Tutorial.PCF8574` | Classe C# do modelo, relativa a `Antmicro.Renode.Peripherals` |
 | `@ sysbus` | Registra o objeto na máquina, sem endereço de memória nesta declaração |
 | `preinit: include @models/PCF8574.cs` | Carrega o código antes de criar a instância; `@` aqui identifica um caminho de arquivo |
-| `0 -> led0@0` | Liga `Connections[0]` do PCF à entrada zero do LED |
+| `0 -> led0@0` | Liga `Connections[0]` do PCF8574 à entrada zero do LED |
 | `-> pcf8574@4` | Liga a saída do botão ao pino P4, recebido por `OnGPIO(4, value)` |
 
-`sysbus` existe em toda máquina Renode; usá-lo aqui **não adiciona uma CPU nem cria uma conexão I2C**. O endereço I2C será definido na próxima etapa. A indentação agrupa os atributos de cada dispositivo; use espaços. Referência: [descrição de plataformas](https://renode.readthedocs.io/en/latest/basic/describing_platforms.html).
+`sysbus` existe em toda máquina Renode. A indentação agrupa os atributos de cada dispositivo; use espaços. Referência: [descrição de plataformas](https://renode.readthedocs.io/en/latest/basic/describing_platforms.html).
 
 Os LEDs representam VCC, resistor, LED e pino do PCF: **nível baixo acende**, por isso `invert: true`. Nos botões, essa opção faz a pressão enviar zero e a liberação enviar um.
 
@@ -285,7 +285,7 @@ machine LoadPlatformDescription @platforms/pcf8574.repl
 renode --console --disable-gui --plain scripts/platform.resc
 ```
 
-Após reset, o latch contém `0xFF`: todos os pinos estão liberados e podem ser usados como entradas. Não é necessário um mestre para que um botão altere o nível observado.
+Após reset, o latch contém `0xFF`: todos os pinos estão liberados e podem ser usados como entradas. Pressionar os botões deve alterar o nível observado internamente pelo PCF.
 
 Os nomes usados no Monitor vêm das declarações do REPL: `pcf8574:`, `led0:` e `button4:`. Como esses objetos foram registrados com `@ sysbus`, seus caminhos são `sysbus.pcf8574`, `sysbus.led0` e `sysbus.button4`. Se uma instância for renomeada no REPL, o comando também precisa usar o novo nome.
 
@@ -363,7 +363,7 @@ sysbus.led0 State
 
 **Saída esperada:** `[254]` e `True` após a escrita; `[255]` e `False` após o reset. O bit P0 baixo acende o LED0.
 
-Essas chamadas a `Read` e `Write` testam diretamente as funções do modelo C#, não são uma transação I2C. Digite `quit` antes de modificar a plataforma.
+Essas chamadas a `Read` e `Write` testam diretamente as funções do modelo C#, não são uma transação I2C. Digite `quit` para encerrar.
 
 ## 4. Conectar ao I2C do STM32
 
@@ -414,14 +414,14 @@ Consulte os periféricos da máquina selecionada:
 peripherals
 ```
 
-O comando mostra a árvore de dispositivos carregados nessa máquina, não um catálogo de todos os modelos disponíveis no Renode. Entre os periféricos do STM32, deve aparecer uma entrada `i2c1` iniciada no endereço `0x40005400`, semelhante a:
+O comando mostra a árvore de dispositivos carregados nessa máquina. Entre os periféricos do STM32, deve aparecer uma entrada `i2c1` iniciada no endereço `0x40005400`, semelhante a:
 
 ```text
 i2c1 (STM32F1_I2C)
     <0x40005400, 0x4000543F>
 ```
 
-O nome do tipo e o fim do intervalo podem variar entre builds do Renode 1.16.1; por exemplo, a distribuição do Windows pode mostrar `STM32F4_I2C` e `<0x40005400, 0x400057FF>`. `i2c1` é o nome estável da instância do controlador I2C1 na definição importada. Por isso podemos usá-lo como destino da conexão do PCF8574. O intervalo mostrado corresponde aos registradores do controlador na memória do STM32, não ao endereço I2C do expansor.
+`i2c1` é o nome da instância do controlador I2C1 na definição importada. Por isso podemos usá-lo como destino da conexão do PCF8574. O intervalo mostrado corresponde aos registradores do controlador na memória do STM32.
 
 **Verificação:** `i2c1` deve existir, ainda sem `pcf8574` abaixo dele. Digite `quit` para encerrar essa sessão de inspeção antes de continuar.
 
@@ -434,7 +434,7 @@ Em `platforms/pcf8574.repl`, troque **somente a primeira linha**, mantendo o `pr
 pcf8574: Tutorial.PCF8574 @ i2c1 0x20
 ```
 
-Agora `@ i2c1` registra o PCF8574 como dispositivo no **controlador I2C1 do STM32**. `0x20` é o endereço I2C de sete bits escolhido para o PCF8574, correspondente aos pinos A2, A1 e A0 em zero. Não é um endereço da memória do STM32. Referência: seção 7.3.3 do [datasheet](https://www.ti.com/lit/ds/symlink/pcf8574.pdf).
+Agora `@ i2c1` registra o PCF8574 como dispositivo no **controlador I2C1 do STM32**. `0x20` é o endereço I2C de sete bits escolhido para o PCF8574, correspondente aos pinos A2, A1 e A0 em zero. Referência: seção 7.3.3 do [datasheet](https://www.ti.com/lit/ds/symlink/pcf8574.pdf).
 
 Atualize `scripts/platform.resc` para carregar o STM32 **antes** do PCF8574, pois `i2c1` precisa existir:
 
@@ -473,7 +473,7 @@ i2c1 (STM32F4_I2C)
         Address: 32
 ```
 
-`Address: 32` mostra em decimal o endereço I2C `0x20` definido no REPL. Não confunda esse endereço com o intervalo de memória do controlador mostrado acima.
+`Address: 32` mostra em decimal o endereço I2C `0x20` definido no REPL.
 
 Para consultar o estado inicial do expansor, use seu novo caminho na árvore:
 
@@ -530,7 +530,7 @@ static void write_port(uint8_t value)
 }
 ```
 
-O `1` é a quantidade de bytes, e `100U` é o timeout em milissegundos. Não enviamos um endereço de registrador: o byte representa os oito pinos. Na simulação, a transação passa pelo modelo do I2C1 e chega ao `Write` do PCF8574, que atualiza `outputLatch` e os conectores dos LEDs. Não é uma chamada direta do firmware ao código C#.
+O `1` é a quantidade de bytes, e `100U` é o timeout em milissegundos. Não enviamos um endereço de registrador: o byte representa os oito pinos. Na simulação, a transação passa pelo modelo do I2C1 e chega ao `Write` do PCF8574, que atualiza `outputLatch` e os conectores dos LEDs.
 
 Após inicializar I2C1 e USART2, `main` chama esta validação:
 
@@ -578,7 +578,7 @@ if((uint32_t)(HAL_GetTick() - lastToggle) >= 250U)
 
 O XOR (`^=`) inverte somente o bit do LED selecionado; o módulo `% 4` percorre P0, P1, P2 e P3 repetidamente. Os bytes escritos começam em `0xFF` e seguem `0xFE`, `0xFC`, `0xF8`, `0xF0`: um LED adicional acende a cada passo. Depois seguem `0xF1`, `0xF3`, `0xF7`, `0xFF`, apagando um por vez.
 
-O OR com `INPUT_MASK` preserva P4..P7 liberados, independentemente dos botões pressionados. **Não usamos a leitura do port como base da escrita:** copiar um zero observado em um botão para o latch faria o próprio PCF8574 manter esse pino baixo mesmo depois de soltar o botão.
+O OR com `INPUT_MASK` preserva P4..P7 liberados, pois os usamos como sensores do estado dos botões, logo não faz sentido setar diferentes niveis logicos desses pinos via firmware, apenas os mantemos como "entradas/sensores".
 
 ### Ler os botões e imprimir mudanças
 
@@ -616,7 +616,7 @@ nvic:
     systickFrequency: 168000000
 ```
 
-O `using` importa a definição original; o bloco `nvic:` sobrescreve apenas o atributo indicado do dispositivo já declarado nessa definição. Os demais atributos são preservados, sem editar os arquivos da instalação do Renode.
+O `using` importa a definição original; o bloco `nvic:` sobrescreve apenas o atributo indicado do dispositivo já declarado nessa definição.
 
 Esse ajuste é aplicado durante a criação da plataforma. Encerre a sessão anterior e carregue uma nova após alterar o arquivo. Na seção 3 não havia CPU; na seção 4 ela ainda não executava firmware. Esses testes não dependiam dessa frequência.
 
@@ -631,7 +631,7 @@ sysbus LoadELF @firmware/demo.elf
 showAnalyzer sysbus.usart2
 ```
 
-O script carrega a plataforma com `include`, carrega o **firmware já compilado e disponibilizado** em `firmware/demo.elf` com `LoadELF` e abre a saída da USART2 com `showAnalyzer`. Não é preciso compilar para executar esta demo. Confira que o arquivo contém as três linhas antes de iniciar o Renode.
+O script carrega a plataforma com `include`, carrega o **firmware já compilado e disponibilizado** em `firmware/demo.elf` com `LoadELF` e abre a saída da USART2 com `showAnalyzer`. Não é preciso compilar o firmware para executar esta demo.
 
 ### Verificar o firmware
 
@@ -713,7 +713,7 @@ python "print(list(monitor.Machine['sysbus.i2c1.pcf8574'].Read(1)))"
 
 Se quiser **editar o firmware da demo**, importe a pasta `firmware` do repositório original em `File > Import > STM32CubeMX/STM32CubeIDE Project`. Edite, por exemplo, `Core/Src/main.c` e compile `pcf8574-demo` em `Debug`.
 
-Em seguida, edite a linha `sysbus LoadELF` de **`scripts/demo.resc`** para apontar para o novo binário. É o script que recebe o caminho, não o arquivo `.elf`. Exemplo com caminho relativo à pasta `my-pcf8574`:
+Em seguida, edite a linha `sysbus LoadELF` de **`scripts/demo.resc`** para apontar para o novo arquivo `.elf`. Exemplo com caminho relativo à pasta `my-pcf8574`:
 
 ```text
 sysbus LoadELF @../renode-pcf8574-tutorial/firmware/Debug/pcf8574-demo.elf
@@ -735,9 +735,7 @@ python tools/build_firmware.py
 
 O script opcional gera `firmware/demo.elf` nesse repositório; a opção `--gcc "caminho/do/arm-none-eabi-gcc"` permite indicar o compilador. Aponte `LoadELF` para esse arquivo ou copie-o para o `firmware/demo.elf` do exercício. Reinicie o Renode após recompilar.
 
-O ELF incluído foi compilado com Arm GCC 14.3 por esse auxiliar. A importação gráfica no CubeIDE ainda não foi validada neste projeto.
-
-## 6. Painel web (vibe coded)
+## 6. Painel web (Vibe Coded)
 
 Encerre o Monitor e execute no **Terminal**:
 
@@ -751,7 +749,7 @@ O painel abre em [localhost:8000](http://127.0.0.1:8000). Clique em um botão pa
 Navegador --HTTP--> Python 3 --XML-RPC--> Renode
 ```
 
-O painel é específico deste exemplo. Usa o [servidor remoto de testes do Renode](https://renode.readthedocs.io/en/latest/introduction/testing.html), compatível com Robot Framework, sem exigir sua instalação. `scripts/bridge.py` é executado pelo Python embutido do Renode para consultar os LEDs e capturar a UART; não deve ser executado diretamente com Python 3.
+O painel é específico deste exemplo. Usa o [servidor remoto de testes do Renode](https://renode.readthedocs.io/en/latest/introduction/testing.html), compatível com Robot Framework, sem exigir sua instalação. `scripts/bridge.py` é executado pelo Python embutido do Renode para consultar os LEDs e capturar a UART.
 
 **Verificação sugerida:**
 
@@ -764,7 +762,7 @@ O painel é específico deste exemplo. Usa o [servidor remoto de testes do Renod
 
 O efeito de um botão acionado enquanto pausado aparece no próximo avanço. Encerre com `Ctrl+C` no terminal.
 
-## Testes automatizados (vibe coded)
+## Testes automatizados (Vibe Coded)
 
 Na pasta do projeto:
 

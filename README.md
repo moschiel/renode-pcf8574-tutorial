@@ -25,9 +25,9 @@ STM32 USART2 -----------------------> UART terminal
 
 ## 1. Prepare the project
 
-Requirements: [Renode 1.16.1](https://renode.readthedocs.io/en/latest/introduction/installing.html), Python 3.10 or newer, and an editor. Renode compiles the C# model while loading it; you do not need a separate .NET SDK. The helper programs use only the Python standard library.
+Requirements: [Renode 1.16.1](https://renode.readthedocs.io/en/latest/introduction/installing.html), Python 3.10 or newer.
 
-Download or clone this repository. Open a terminal in its root and create a sibling directory named `my-pcf8574`. The commands copy only the firmware and the interface and test helpers; you will create the model and platform in the following steps. Use another name if the destination already exists.
+This repository already contains everything you need, but to follow this tutorial, create a sibling directory named `my-pcf8574`. The following commands copy only the firmware and the interface and test helpers; you will create the model and platform in the following steps.
 
 **Windows / PowerShell:**
 
@@ -81,7 +81,7 @@ The implementation follows this subset of the [TI PCF8574 datasheet, revision K]
 
 There is no direction register: writing `1` allows a pin to be used as an input. In this digital model, the observed logic level is determined by `outputLatch & externalLevels`. Currents, resistances, and other electrical characteristics are not simulated.
 
-**Successive writes:** section 7.3.1 of the datasheet says that additional bytes in the same transaction are ignored, while Figure 7-3 shows two bytes updating the port. The `foreach` below follows the diagram; this is a modeling choice in response to that discrepancy, not an unambiguous conclusion from the text. The firmware sends one byte per transaction. Separate transactions can still update the port normally.
+**Successive writes:** section 7.3.1 of the datasheet says that additional bytes in the same write transaction are ignored, while Figure 7-3 shows two bytes updating the port. The `foreach` below follows the diagram; this is a modeling choice in response to that discrepancy. The firmware sends one byte per transaction. Separate transactions can still update the port normally.
 
 Create `models/PCF8574.cs`:
 
@@ -188,7 +188,7 @@ namespace Antmicro.Renode.Peripherals.Tutorial
 }
 ```
 
-`II2CPeripheral` serves the I2C bus; `IGPIOReceiver` receives external button changes; and `INumberedGPIOOutput` exposes the eight output connectors used by the LEDs in this example. These contracts separate the [peripheral behavior](https://renode.readthedocs.io/en/latest/advanced/writing-peripherals.html) from the platform connections.
+`II2CPeripheral` serves the I2C bus; `IGPIOReceiver` receives external button changes; and `INumberedGPIOOutput` exposes the eight output connectors used by the LEDs and buttons in this example. These contracts separate the [peripheral behavior](https://renode.readthedocs.io/en/latest/advanced/writing-peripherals.html) from the platform connections.
 
 The latch stores the master's command (an STM32 in this example), while `externalLevels` stores the external signal. `OnGPIO` changes one bit of that signal, and `UpdatePinLevels` publishes the result through the connectors. Resetting the chip does not release a button that remains externally pressed.
 
@@ -213,7 +213,7 @@ Renode should load `PCF8574.cs` and return to the `(monitor)` prompt without com
 
 A **`.repl` file describes a Renode platform**: which models to instantiate, their parameters, and their connections. A **`.resc` file is a Renode script** that groups Monitor commands used to assemble and run a session.
 
-At this stage, the machine contains **only the PCF8574, four LEDs, and four buttons**, with no STM32, I2C controller, or firmware to run.
+At this stage, the machine contains **only the PCF8574, four LEDs, and four buttons**.
 
 Create `platforms/pcf8574.repl`:
 
@@ -258,10 +258,10 @@ button7: Miscellaneous.Button @ sysbus
 | `Tutorial.PCF8574` | C# model class, relative to `Antmicro.Renode.Peripherals` |
 | `@ sysbus` | Registers the object in the machine without a memory address in this declaration |
 | `preinit: include @models/PCF8574.cs` | Loads the code before creating the instance; `@` identifies a file path here |
-| `0 -> led0@0` | Connects PCF `Connections[0]` to input zero of the LED |
+| `0 -> led0@0` | Connects PCF8574 `Connections[0]` to input zero of the LED |
 | `-> pcf8574@4` | Connects the button output to pin P4, received by `OnGPIO(4, value)` |
 
-`sysbus` exists in every Renode machine; using it here **does not add a CPU or create an I2C connection**. The I2C address will be set in the next step. Indentation groups each device's attributes; use spaces. See [describing platforms](https://renode.readthedocs.io/en/latest/basic/describing_platforms.html).
+`sysbus` exists in every Renode machine. Indentation groups each device's attributes; use spaces. See [describing platforms](https://renode.readthedocs.io/en/latest/basic/describing_platforms.html).
 
 The LEDs represent VCC, a resistor, the LED, and a PCF pin: **a low level turns an LED on**, hence `invert: true`. For buttons, this option makes a press send zero and a release send one.
 
@@ -284,7 +284,7 @@ machine LoadPlatformDescription @platforms/pcf8574.repl
 renode --console --disable-gui --plain scripts/platform.resc
 ```
 
-After reset, the latch contains `0xFF`: all pins are released and can be used as inputs. A master is not required for a button to change the observed level.
+After reset, the latch contains `0xFF`: all pins are released and can be used as inputs. Pressing a button should change the logic level observed by the PCF model.
 
 The names used in the Monitor come from the REPL declarations: `pcf8574:`, `led0:`, and `button4:`. Because these objects were registered with `@ sysbus`, their paths are `sysbus.pcf8574`, `sysbus.led0`, and `sysbus.button4`. If an instance is renamed in the REPL, its commands must use the new name too.
 
@@ -362,7 +362,7 @@ sysbus.led0 State
 
 **Expected output:** `[254]` and `True` after the write; `[255]` and `False` after reset. A low P0 bit turns LED0 on.
 
-These `Read` and `Write` calls test the C# model functions directly; they are not an I2C transaction. Enter `quit` before changing the platform.
+These `Read` and `Write` calls test the C# model functions directly; they are not an I2C transaction. Enter `quit` to continue.
 
 ## 4. Connect to the STM32 I2C controller
 
@@ -413,14 +413,14 @@ List the selected machine's peripherals:
 peripherals
 ```
 
-The command shows the tree of devices loaded in this machine, not a catalog of every model available in Renode. The STM32 peripherals should include an `i2c1` entry starting at address `0x40005400`, similar to:
+The command shows the tree of devices loaded in this machine. The STM32 peripherals should include an `i2c1` entry starting at address `0x40005400`, similar to:
 
 ```text
 i2c1 (STM32F1_I2C)
     <0x40005400, 0x4000543F>
 ```
 
-The type name and end of the range can vary between Renode 1.16.1 builds; for example, the Windows distribution may show `STM32F4_I2C` and `<0x40005400, 0x400057FF>`. `i2c1` is the stable instance name of the I2C1 controller in the imported definition, so it can be used as the destination of the PCF8574 connection. The displayed range belongs to the controller registers in STM32 memory, not to the expander's I2C address.
+`i2c1` is the stable instance name of the I2C1 controller in the imported definition, so it can be used as the destination of the PCF8574 connection. The displayed range belongs to the controller registers in STM32 memory.
 
 **Check:** `i2c1` should exist, with no `pcf8574` beneath it yet. Enter `quit` to close this inspection session before continuing.
 
@@ -433,7 +433,7 @@ In `platforms/pcf8574.repl`, replace **only the first line**, preserving `preini
 pcf8574: Tutorial.PCF8574 @ i2c1 0x20
 ```
 
-`@ i2c1` now registers the PCF8574 as a device on the **STM32 I2C1 controller**. `0x20` is the seven-bit I2C address selected for the PCF8574, corresponding to A2, A1, and A0 tied low. It is not an STM32 memory address. See section 7.3.3 of the [datasheet](https://www.ti.com/lit/ds/symlink/pcf8574.pdf).
+`@ i2c1` now registers the PCF8574 as a device on the **STM32 I2C1 controller**. `0x20` is the seven-bit I2C address selected for the PCF8574, corresponding to A2, A1, and A0 tied low. See section 7.3.3 of the [datasheet](https://www.ti.com/lit/ds/symlink/pcf8574.pdf).
 
 Update `scripts/platform.resc` to load the STM32 **before** the PCF8574 because `i2c1` must already exist:
 
@@ -472,7 +472,7 @@ i2c1 (STM32F4_I2C)
         Address: 32
 ```
 
-`Address: 32` shows the REPL's `0x20` I2C address in decimal. Do not confuse it with the controller memory range shown above.
+`Address: 32` shows the REPL's `0x20` I2C address in decimal.
 
 Use the expander's new path in the tree to read its initial state:
 
@@ -529,7 +529,7 @@ static void write_port(uint8_t value)
 }
 ```
 
-`1` is the byte count, and `100U` is the timeout in milliseconds. No register address is sent: the byte represents all eight pins. In the simulation, the transaction passes through the I2C1 model and reaches the PCF8574's `Write`, which updates `outputLatch` and the LED connectors. The firmware does not call the C# code directly.
+`1` is the byte count, and `100U` is the timeout in milliseconds. No register address is sent: the byte represents all eight pins. In the simulation, the transaction passes through the I2C1 model and reaches the PCF8574's `Write`, which updates `outputLatch` and the LED connectors.
 
 After initializing I2C1 and USART2, `main` calls this validation:
 
@@ -577,7 +577,7 @@ if((uint32_t)(HAL_GetTick() - lastToggle) >= 250U)
 
 XOR (`^=`) flips only the selected LED bit; modulo `% 4` cycles through P0, P1, P2, and P3 repeatedly. Written bytes start at `0xFF`, followed by `0xFE`, `0xFC`, `0xF8`, and `0xF0`: one additional LED turns on at each step. Then `0xF1`, `0xF3`, `0xF7`, and `0xFF` turn them off one at a time.
 
-OR with `INPUT_MASK` keeps P4..P7 released regardless of the pressed buttons. **The port reading is not used as the basis for a write:** copying an observed button zero into the latch would make the PCF8574 itself hold that pin low even after the button was released.
+OR with `INPUT_MASK` keeps P4..P7 released because these pins are used as button inputs. Therefore, the firmware should not drive them to different logic levels.
 
 ### Read the buttons and print changes
 
@@ -615,7 +615,7 @@ nvic:
     systickFrequency: 168000000
 ```
 
-`using` imports the original definition; the `nvic:` block overrides only the specified attribute of the device already declared there. All other attributes are preserved without editing files in the Renode installation.
+`using` imports the original definition; the `nvic:` block overrides only the specified attribute of the device already declared there.
 
 This adjustment is applied while creating the platform. Close the previous session and load a new one after changing the file. Section 3 had no CPU, and in section 4 the CPU was not running firmware yet; those tests did not depend on this frequency.
 
@@ -630,7 +630,7 @@ sysbus LoadELF @firmware/demo.elf
 showAnalyzer sysbus.usart2
 ```
 
-The script loads the platform with `include`, loads the **supplied precompiled firmware** from `firmware/demo.elf` with `LoadELF`, and opens the USART2 output with `showAnalyzer`. You do not need to compile anything to run this demo. Check that the file contains all three lines before starting Renode.
+The script loads the platform with `include`, loads the **supplied precompiled firmware** from `firmware/demo.elf` with `LoadELF`, and opens the USART2 output with `showAnalyzer`. You do not need to compile the firmware to run this demo.
 
 ### Check the firmware
 
@@ -712,7 +712,7 @@ python "print(list(monitor.Machine['sysbus.i2c1.pcf8574'].Read(1)))"
 
 To **edit the demo firmware**, import the original repository's `firmware` directory through `File > Import > STM32CubeMX/STM32CubeIDE Project`. Edit `Core/Src/main.c`, for example, and build `pcf8574-demo` in `Debug`.
 
-Then edit the `sysbus LoadELF` line in **`scripts/demo.resc`** to point to the new binary. The path belongs in the script, not in the `.elf` file. Example path relative to the `my-pcf8574` directory:
+Then edit the `sysbus LoadELF` line in **`scripts/demo.resc`** to point to the new `.elf` file. Example path relative to the `my-pcf8574` directory:
 
 ```text
 sysbus LoadELF @../renode-pcf8574-tutorial/firmware/Debug/pcf8574-demo.elf
@@ -734,9 +734,7 @@ python tools/build_firmware.py
 
 The optional script generates `firmware/demo.elf` in that repository; use `--gcc "path/to/arm-none-eabi-gcc"` to select the compiler. Point `LoadELF` to that file or copy it to the exercise's `firmware/demo.elf`. Restart Renode after rebuilding.
 
-The included ELF was built with Arm GCC 14.3 using this helper. The graphical CubeIDE import has not yet been validated for this project.
-
-## 6. Web panel (vibe coded)
+## 6. Web panel (vibe-coded)
 
 Close the Monitor and run this in the **Terminal**:
 
@@ -750,7 +748,7 @@ The panel opens at [localhost:8000](http://127.0.0.1:8000). Click a button once 
 Browser --HTTP--> Python 3 --XML-RPC--> Renode
 ```
 
-The panel is specific to this example. It uses the [Renode remote test server](https://renode.readthedocs.io/en/latest/introduction/testing.html), which is compatible with Robot Framework without requiring it to be installed. `scripts/bridge.py` runs in Renode's embedded Python to inspect the LEDs and capture UART; do not run it directly with Python 3.
+The panel is specific to this example. It uses the [Renode remote test server](https://renode.readthedocs.io/en/latest/introduction/testing.html), which is compatible with Robot Framework without requiring it to be installed. `scripts/bridge.py` runs in Renode's embedded Python to inspect the LEDs and capture UART.
 
 **Suggested check:**
 
@@ -763,7 +761,7 @@ The panel is specific to this example. It uses the [Renode remote test server](h
 
 The effect of a button operated while paused appears on the next step. Stop the panel with `Ctrl+C` in the terminal.
 
-## Automated tests (vibe coded)
+## Automated tests (vibe-coded)
 
 From the project directory:
 
