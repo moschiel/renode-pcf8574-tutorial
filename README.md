@@ -45,8 +45,7 @@ Copy-Item "$reference/web/index.html" web/
 python --version
 ```
 
-<details>
-<summary>Linux / Bash</summary>
+**Linux / Bash:**
 
 ```bash
 reference="$PWD"
@@ -60,10 +59,8 @@ cp "$reference/scripts/bridge.py" scripts/
 cp "$reference/web/index.html" web/
 python3 --version
 ```
-
 Use `python3` instead of `python` in the following commands if necessary.
 
-</details>
 
 **Check:** `renode --version` should show the installed version, and `python --version` should show Python 3.10 or newer. The commands below expect `renode` to be available on the PATH.
 

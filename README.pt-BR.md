@@ -45,8 +45,7 @@ Copy-Item "$reference/web/index.html" web/
 python --version
 ```
 
-<details>
-<summary>Linux / Bash</summary>
+**Linux / Bash:**
 
 ```bash
 reference="$PWD"
@@ -60,7 +59,6 @@ cp "$reference/scripts/bridge.py" scripts/
 cp "$reference/web/index.html" web/
 python3 --version
 ```
-
 Use `python3` no lugar de `python` nos próximos comandos, se necessário.
 
 </details>
