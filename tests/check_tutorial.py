@@ -119,18 +119,18 @@ def check_monitor_and_panel(work, executable, document):
         try:
             page = request('/')
             assert b'<html lang="en">' in page and b'Renode Lab' in page
-            assert b'Pause' in page and b'Advance 250 ms' in page and b'Button ' in page
+            assert b'Pause' in page and b'Advance 1 s' in page and b'Button ' in page
             assert request()['leds'] == [False] * 4
             state = request('/api/control', {'action': 'step'})
             assert state['leds'] == [True, False, False, False], state
             for pin in (4, 7):
                 request('/api/control', {'action': 'button', 'pin': pin, 'pressed': True})
             state = request('/api/control', {'action': 'step'})
-            assert state['uart'][-1] == 'INPUT P7..P4=0x6', state
+            assert 'INPUT P7..P4=0x6' in state['uart'], state
             for pin in (4, 7):
                 request('/api/control', {'action': 'button', 'pin': pin, 'pressed': False})
             state = request('/api/control', {'action': 'step'})
-            assert state['uart'][-1] == 'INPUT P7..P4=0xF', state
+            assert state['uart'].count('INPUT P7..P4=0xF') >= 2, state
             assert state['leds'] == [True, True, True, False], state
             try:
                 request('/api/control', {'action': 'button', 'pin': 9, 'pressed': True})

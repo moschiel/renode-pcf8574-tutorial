@@ -56,7 +56,7 @@ class Lab:
                 self.running = True
             elif action == 'step':
                 self.running = False
-                self.renode.advance(.25)
+                self.renode.advance(1.0)
             else:
                 raise ValueError('Unknown action')
             self.snapshot = self.renode.state()

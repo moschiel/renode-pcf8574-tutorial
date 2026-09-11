@@ -6,7 +6,7 @@ Renode can run firmware against ready-made hardware models. When a peripheral is
 
 This tutorial creates a model of the **PCF8574, an eight-bit digital input/output expander controlled over I2C**. It extends a microcontroller's I/O through the I2C bus. The microcontroller sends commands to drive the outputs and reads the input states.
 
-To demonstrate the use case, the **PCF8574 is connected to an STM32F407 over I2C**. The firmware toggles four LEDs on outputs P0..P3 and prints changes from the buttons connected to P4..P7 over UART. Finally, a web panel lets you watch the LEDs and operate the buttons without physical hardware.
+To demonstrate the use case, the **PCF8574 is connected to an STM32F407 over I2C**. The firmware toggles four LEDs on outputs P0..P3 and prints LED and button changes over UART. Finally, a web panel lets you watch the LEDs and operate the buttons connected to P4..P7 without physical hardware.
 
 > **Scope:** this tutorial focuses on creating a basic peripheral model from the datasheet and demonstrating it with an STM32. Project features outside this scope were 100% *vibe coded* (the web GUI, automated Python/Robot Framework tests, and others).
 
@@ -90,6 +90,7 @@ Create `models/PCF8574.cs`:
 using System;
 using System.Collections.Generic;
 using Antmicro.Renode.Core;
+using Antmicro.Renode.Logging;
 using Antmicro.Renode.Peripherals.I2C;
 
 namespace Antmicro.Renode.Peripherals.Tutorial
@@ -121,6 +122,7 @@ namespace Antmicro.Renode.Peripherals.Tutorial
         {
             outputLatch = 0xFF;
             UpdatePinLevels();
+            this.Log(LogLevel.Debug, "Reset: output latch restored to 0xFF.");
         }
 
         // II2CPeripheral requires Write, Read and FinishTransmission.
@@ -130,6 +132,7 @@ namespace Antmicro.Renode.Peripherals.Tutorial
             // Section 7.3.1 conflicts with that diagram; see the README note.
             foreach(var value in data)
             {
+                this.Log(LogLevel.Debug, "I2C write: output latch changed from 0x{0:X2} to 0x{1:X2}.", outputLatch, value);
                 outputLatch = value;
                 UpdatePinLevels();
             }
@@ -142,6 +145,7 @@ namespace Antmicro.Renode.Peripherals.Tutorial
             {
                 data[i] = EffectivePinLevels;
             }
+            this.Log(LogLevel.Noisy, "I2C read: returning 0x{0:X2} ({1} byte(s) requested).", EffectivePinLevels, count);
             return data;
         }
 
@@ -167,6 +171,8 @@ namespace Antmicro.Renode.Peripherals.Tutorial
                 externalLevels &= (byte)~mask;
             }
             UpdatePinLevels();
+            this.Log(LogLevel.Debug, "GPIO input: P{0} is now {1}; effective port level is 0x{2:X2}.",
+                number, value ? "high" : "low", EffectivePinLevels);
         }
 
         // Combine the master's command with the externally driven levels.
@@ -191,6 +197,8 @@ namespace Antmicro.Renode.Peripherals.Tutorial
 `II2CPeripheral` serves the I2C bus; `IGPIOReceiver` receives external button changes; and `INumberedGPIOOutput` exposes the eight output connectors used by the LEDs and buttons in this example. These contracts separate the [peripheral behavior](https://renode.readthedocs.io/en/latest/advanced/writing-peripherals.html) from the platform connections.
 
 The latch stores the master's command (an STM32 in this example), while `externalLevels` stores the external signal. `OnGPIO` changes one bit of that signal, and `UpdatePinLevels` publishes the result through the connectors. Resetting the chip does not release a button that remains externally pressed.
+
+`this.Log` sends messages through Renode's logging system and identifies them with this peripheral instance. State changes use `Debug`; frequent reads use the more verbose `Noisy` level so they can remain hidden during normal execution.
 
 **Compile check for PCF8574.cs, in the Terminal:**
 
@@ -275,6 +283,22 @@ machine LoadPlatformDescription @platforms/pcf8574.repl
 ```
 
 `mach create` creates the machine; `using sysbus` lets you shorten names in the Monitor; and `LoadPlatformDescription` assembles the devices and I/O connections described in the REPL.
+
+### Inspect the model logs
+
+Once the platform is loaded, enable `Debug` messages only for this instance in the **Monitor**:
+
+```text
+logLevel 0 sysbus.pcf8574
+```
+
+The `sysbus.pcf8574` path comes from the `pcf8574:` declaration in the REPL. The button and output checks below will now show messages when an external GPIO changes or an I2C write updates the latch. To also see every I2C read, enable the `Noisy` level:
+
+```text
+logLevel -1 sysbus.pcf8574
+```
+
+Per-peripheral logging is useful while developing a model because it exposes internal decisions without changing the firmware or adding temporary `Console.WriteLine` calls.
 
 ### Check inputs by pressing the buttons
 
@@ -489,7 +513,9 @@ This checks the platform assembly. The CPU has not run any firmware yet; master-
 
 The supplied firmware was generated with STM32CubeMX for the **STM32F407G-DISC1** board, **STM32F407VGTx** MCU, using HAL. The complete project is in [firmware](firmware), including the [CubeMX file](firmware/pcf8574-demo.ioc) and [main.c](firmware/Core/Src/main.c).
 
-The application initializes the port to `0xFF`, keeps P4..P7 released for input, and toggles one LED every 250 ms while cycling through P0..P3. The sequence turns on P0, P1, P2, P3, then turns off P0, P1, P2, P3. Input changes are printed through USART2.
+The application initializes the port to `0xFF`, keeps P4..P7 released for input, polls the buttons every 200 ms, and toggles one LED every second while cycling through P0..P3. The sequence turns on P0, P1, P2, P3, then turns off P0, P1, P2, P3. LED and input changes are printed through USART2.
+
+With the model logging introduced in section 3, `Debug` shows the latch write once per second. The optional `Noisy` level also shows the five I2C reads performed per second while polling the buttons.
 
 The excerpts below are already part of the supplied [main.c](firmware/Core/Src/main.c); you do not need to add them to run the tutorial ELF.
 
@@ -510,9 +536,11 @@ The firmware constants define the expander address and which bits must remain re
 ```c
 #define PCF_ADDRESS (0x20U << 1)
 #define INPUT_MASK 0xF0U
+#define BUTTON_POLL_INTERVAL_MS 200U
+#define LED_TOGGLE_INTERVAL_MS 1000U
 ```
 
-`INPUT_MASK` is `11110000` in binary: it keeps P4..P7 at `1` on every write. P0..P3 receive the desired LED levels. HAL takes the seven-bit address shifted left by one position (`0x20 << 1`); in the REPL, the address remains `0x20`.
+`INPUT_MASK` is `11110000` in binary: it keeps P4..P7 at `1` on every write. P0..P3 receive the desired LED levels. The other constants make the two independent periods explicit. HAL takes the seven-bit address shifted left by one position (`0x20 << 1`); in the REPL, the address remains `0x20`.
 
 ### Initialize and access the expander over I2C
 
@@ -548,7 +576,7 @@ static void validate_pcf8574(void)
 
 `0xFF` releases every pin: all four LEDs start off, and the buttons can change the input levels. The check uses `0x0F` to inspect only P0..P3 because a button held during initialization may legitimately make a P4..P7 bit return zero. `read_port` uses `HAL_I2C_Master_Receive` to receive one byte, ultimately reaching the model's `Read` method.
 
-### Toggle one LED every 250 ms
+### Toggle one LED every second
 
 Before the `while` loop, the firmware prepares the LED state and time reference:
 
@@ -557,45 +585,57 @@ Before the `while` loop, the firmware prepares the LED state and time reference:
 uint8_t ledLevels = 0x0FU;
 uint8_t nextLed = 0U;
 uint8_t previousInputs = 0xFFU;  // Sentinel: also print the first sample.
-uint32_t lastToggle = HAL_GetTick();
+uint32_t lastButtonPoll = HAL_GetTick();
+uint32_t lastLedToggle = HAL_GetTick();
 ```
 
 Inside the loop, this block toggles one pin per interval:
 
 <!-- tutorial-firmware-excerpt -->
 ```c
-if((uint32_t)(HAL_GetTick() - lastToggle) >= 250U)
+if((uint32_t)(now - lastLedToggle) >= LED_TOGGLE_INTERVAL_MS)
 {
-    lastToggle += 250U;
+    lastLedToggle += LED_TOGGLE_INTERVAL_MS;
     // Toggle ONE pin per step: P0, P1, P2, P3, then repeat.
-    ledLevels ^= (uint8_t)(1U << nextLed);
+    uint8_t toggledLed = nextLed;
+    ledLevels ^= (uint8_t)(1U << toggledLed);
     nextLed = (uint8_t)((nextLed + 1U) % 4U);
     // Never copy observed button lows back into the output latch.
     write_port((uint8_t)(INPUT_MASK | ledLevels));
+
+    char message[32];
+    snprintf(message, sizeof(message), "LED P%u=%s\r\n", (unsigned)toggledLed,
+        (ledLevels & (1U << toggledLed)) == 0U ? "ON" : "OFF");
+    print_line(message);
 }
 ```
 
-XOR (`^=`) flips only the selected LED bit; modulo `% 4` cycles through P0, P1, P2, and P3 repeatedly. Written bytes start at `0xFF`, followed by `0xFE`, `0xFC`, `0xF8`, and `0xF0`: one additional LED turns on at each step. Then `0xF1`, `0xF3`, `0xF7`, and `0xFF` turn them off one at a time.
+XOR (`^=`) flips only the selected LED bit; modulo `% 4` cycles through P0, P1, P2, and P3 repeatedly. Written bytes start at `0xFF`, followed by `0xFE`, `0xFC`, `0xF8`, and `0xF0`: one additional LED turns on at each step. Then `0xF1`, `0xF3`, `0xF7`, and `0xFF` turn them off one at a time. Because this happens only once per second, the firmware also prints concise messages such as `LED P0=ON` without flooding the UART.
 
 OR with `INPUT_MASK` keeps P4..P7 released because these pins are used as button inputs. Therefore, the firmware should not drive them to different logic levels.
 
-### Read the buttons and print changes
+### Poll the buttons every 200 ms
 
 Also inside the `while` loop, the read separates the four input bits:
 
 <!-- tutorial-firmware-excerpt -->
 ```c
-uint8_t inputs = (uint8_t)((read_port() >> 4) & 0x0FU);
-if(inputs != previousInputs)
+uint32_t now = HAL_GetTick();
+if((uint32_t)(now - lastButtonPoll) >= BUTTON_POLL_INTERVAL_MS)
 {
-    char message[48];
-    snprintf(message, sizeof(message), "INPUT P7..P4=0x%X\r\n", (unsigned)inputs);
-    print_line(message);
-    previousInputs = inputs;
+    lastButtonPoll += BUTTON_POLL_INTERVAL_MS;
+    uint8_t inputs = (uint8_t)((read_port() >> 4) & 0x0FU);
+    if(inputs != previousInputs)
+    {
+        char message[48];
+        snprintf(message, sizeof(message), "INPUT P7..P4=0x%X\r\n", (unsigned)inputs);
+        print_line(message);
+        previousInputs = inputs;
+    }
 }
 ```
 
-The `>> 4` shift moves P4..P7 into the lower four bits; the `0x0F` mask keeps only that group. `print_line` transmits through USART2, and the comparison avoids repeating messages while the inputs remain unchanged. The initial `previousInputs = 0xFF` value ensures that the first sample is printed. The loop ends with `HAL_Delay(5U)`, allowing buttons to be checked between LED toggles without waiting 250 ms for every read.
+`HAL_GetTick` lets the loop perform an I2C read every 200 ms independently of the LED timer. The `>> 4` shift moves P4..P7 into the lower four bits; the `0x0F` mask keeps only that group. `print_line` transmits through USART2, and the comparison avoids repeating messages while the inputs remain unchanged. The initial `previousInputs = 0xFF` value ensures that the first sample is printed. The loop still ends with `HAL_Delay(5U)` so it can service both timers, but it does not access I2C on every iteration.
 
 This completes the path introduced in section 2: pressing a button calls `OnGPIO`, which changes `externalLevels`; because the corresponding `outputLatch` bit remains `1`, `Read` returns the external level. A released button reads as `1`; a pressed button reads as `0`.
 
@@ -644,14 +684,14 @@ In an empty Monitor, the equivalent command is `include @scripts/demo.resc`.
 
 Use a new **Monitor** session and do not run `start` first. Run each block below separately.
 
-Advance 270 ms of virtual time to initialize the firmware and reach the first toggle:
+Advance 1.05 s of virtual time to initialize the firmware and reach the first LED toggle:
 
 <!-- tutorial-monitor -->
 ```text
-emulation RunFor "0.270"
+emulation RunFor "1.050"
 ```
 
-With all buttons released, check UART for the messages `PCF8574 ready` and `INPUT P7..P4=0xF`. Then read the LED connected to P0:
+With all buttons released, check UART for `PCF8574 ready`, `INPUT P7..P4=0xF`, and `LED P0=ON`. Then read the LED connected to P0:
 
 <!-- tutorial-monitor -->
 ```text
@@ -671,7 +711,7 @@ Advance time to deliver the signal and let the firmware read it:
 
 <!-- tutorial-monitor -->
 ```text
-emulation RunFor "0.100"
+emulation RunFor "0.210"
 ```
 
 **Expected on UART:** `INPUT P7..P4=0xE`. Also read the model's complete byte:
@@ -690,11 +730,11 @@ Release the same button:
 sysbus.button4 Release
 ```
 
-Advance another 100 ms:
+Advance another 210 ms so the next button poll observes the release:
 
 <!-- tutorial-monitor -->
 ```text
-emulation RunFor "0.100"
+emulation RunFor "0.210"
 ```
 
 **Expected on UART:** `INPUT P7..P4=0xF`. Read the value again:
@@ -704,7 +744,7 @@ emulation RunFor "0.100"
 python "print(list(monitor.Machine['sysbus.i2c1.pcf8574'].Read(1)))"
 ```
 
-**Expected:** `[254]` (`0xFE`): P4 returned high; LED0 remains on. Accumulated time is 470 ms, still before the second toggle.
+**Expected:** `[254]` (`0xFE`): P4 returned high; LED0 remains on. Accumulated time is 1.47 s, still before the second LED toggle.
 
 `RunFor` executes the requested virtual-time interval and stops. Use `start` for continuous execution and `pause` to interrupt it. Exit with `quit`.
 
@@ -757,7 +797,7 @@ The panel is specific to this example. It uses the [Renode remote test server](h
 | Press P4 | UART: `INPUT P7..P4=0xE` |
 | Hold P4 and press P7 | UART: `INPUT P7..P4=0x6` |
 | Release both | UART ends with `INPUT P7..P4=0xF` |
-| Pause and advance 250 ms | One LED changes state per step |
+| Pause and advance 1 s | One LED changes state and its new state appears on UART |
 
 The effect of a button operated while paused appears on the next step. Stop the panel with `Ctrl+C` in the terminal.
 

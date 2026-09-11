@@ -40,38 +40,44 @@ def check_model(executable):
 
 def check_firmware(executable):
     with Renode(executable) as r:
-        r.advance(.24)
+        r.advance(.95)
         s = r.state()
         assert s['leds'] == [False] * 4, s
         assert 'INPUT P7..P4=0xF' in s['uart'], s
-        r.advance(.03)
-        assert r.state()['leds'] == [True, False, False, False]
+        r.advance(.1)
+        s = r.state()
+        assert s['leds'] == [True, False, False, False], s
+        assert 'LED P0=ON' in s['uart'], s
         expected = [True, False, False, False]
         for pin in [1, 2, 3, 0, 1, 2, 3]:
-            r.advance(.25)
+            r.advance(1.0)
             expected[pin] = not expected[pin]
-            assert r.state()['leds'] == expected, (pin, r.state())
+            s = r.state()
+            assert s['leds'] == expected, (pin, s)
+            expected_line = 'LED P%d=%s' % (pin, 'ON' if expected[pin] else 'OFF')
+            assert expected_line in s['uart'], (expected_line, s)
         for pin, nibble in [(4, 'E'), (5, 'D'), (6, 'B'), (7, '7')]:
             r.button(pin, True)
-            r.advance(.1)
-            assert r.state()['uart'][-1] == 'INPUT P7..P4=0x' + nibble, r.state()
+            r.advance(.21)
+            assert 'INPUT P7..P4=0x' + nibble in r.state()['uart'], r.state()
             # Hold through several firmware writes: input must not become latched low.
-            r.advance(.6)
+            r.advance(2.1)
             r.button(pin, False)
-            r.advance(.1)
-            assert r.state()['uart'][-1] == 'INPUT P7..P4=0xF', r.state()
+            previous = r.state()['uart'].count('INPUT P7..P4=0xF')
+            r.advance(.21)
+            assert r.state()['uart'].count('INPUT P7..P4=0xF') > previous, r.state()
         r.button(4, True)
         r.button(7, True)
-        r.advance(.1)
-        assert r.state()['uart'][-1] == 'INPUT P7..P4=0x6', r.state()
+        r.advance(.21)
+        assert 'INPUT P7..P4=0x6' in r.state()['uart'], r.state()
         assert not any('ERROR' in line for line in r.state()['uart'])
     # An input held during power-on is valid, not a failed chip self-test.
     with Renode(executable) as r:
         r.button(4, True)
-        r.advance(.1)
-        assert r.state()['uart'][-1] == 'INPUT P7..P4=0xE', r.state()
+        r.advance(.25)
+        assert 'INPUT P7..P4=0xE' in r.state()['uart'], r.state()
         assert not any('ERROR' in line for line in r.state()['uart'])
-    print('PASS firmware: 250 ms sequence, all buttons, press/release, held input at boot, UART')
+    print('PASS firmware: 1 s LED sequence, 200 ms button polling, held input at boot, UART')
 
 
 def main():

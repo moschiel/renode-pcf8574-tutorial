@@ -6,7 +6,7 @@ O Renode permite executar firmware com modelos de hardware prontos. Quando um pe
 
 Este tutorial cria um modelo do periférico **PCF8574, um expansor de oito entradas e saídas digitais controlado via I2C**. Ele permite ampliar os I/Os de um microcontrolador através do barramento I2C. O microcontrolador envia comandos para atuar nas saídas e lê o estado das entradas.
 
-Para testar o caso de uso, o **PCF8574 é conectado ao I2C de um STM32F407**. O firmware alterna quatro LEDs pelas saídas P0..P3 e imprime na UART as mudanças dos botões ligados a P4..P7. Ao final, um painel web permite observar os LEDs e acionar os botões, sem placa física.
+Para testar o caso de uso, o **PCF8574 é conectado ao I2C de um STM32F407**. O firmware alterna quatro LEDs pelas saídas P0..P3 e imprime na UART as mudanças dos LEDs e botões. Ao final, um painel web permite observar os LEDs e acionar os botões ligados a P4..P7, sem placa física.
 
 > **Escopo:** o foco deste tutorial é como criar um modelo básico de periférico a partir do datasheet e demonstrar seu uso com um STM32. Recursos no projeto fora desse escopo foram 100% *vibe coded* (interface gráfica (painel web), testes automatizados com Python/RobotFramework, entre outros).
 
@@ -91,6 +91,7 @@ Crie `models/PCF8574.cs`:
 using System;
 using System.Collections.Generic;
 using Antmicro.Renode.Core;
+using Antmicro.Renode.Logging;
 using Antmicro.Renode.Peripherals.I2C;
 
 namespace Antmicro.Renode.Peripherals.Tutorial
@@ -122,6 +123,7 @@ namespace Antmicro.Renode.Peripherals.Tutorial
         {
             outputLatch = 0xFF;
             UpdatePinLevels();
+            this.Log(LogLevel.Debug, "Reset: output latch restored to 0xFF.");
         }
 
         // II2CPeripheral requires Write, Read and FinishTransmission.
@@ -131,6 +133,7 @@ namespace Antmicro.Renode.Peripherals.Tutorial
             // Section 7.3.1 conflicts with that diagram; see the README note.
             foreach(var value in data)
             {
+                this.Log(LogLevel.Debug, "I2C write: output latch changed from 0x{0:X2} to 0x{1:X2}.", outputLatch, value);
                 outputLatch = value;
                 UpdatePinLevels();
             }
@@ -143,6 +146,7 @@ namespace Antmicro.Renode.Peripherals.Tutorial
             {
                 data[i] = EffectivePinLevels;
             }
+            this.Log(LogLevel.Noisy, "I2C read: returning 0x{0:X2} ({1} byte(s) requested).", EffectivePinLevels, count);
             return data;
         }
 
@@ -168,6 +172,8 @@ namespace Antmicro.Renode.Peripherals.Tutorial
                 externalLevels &= (byte)~mask;
             }
             UpdatePinLevels();
+            this.Log(LogLevel.Debug, "GPIO input: P{0} is now {1}; effective port level is 0x{2:X2}.",
+                number, value ? "high" : "low", EffectivePinLevels);
         }
 
         // Combine the master's command with the externally driven levels.
@@ -192,6 +198,8 @@ namespace Antmicro.Renode.Peripherals.Tutorial
 `II2CPeripheral` atende o barramento I2C; `IGPIOReceiver` recebe mudanças externas dos botões; `INumberedGPIOOutput` expõe os oito conectores de saída, usados pelos LEDs/botões neste exemplo. Esses contratos separam o [comportamento do periférico](https://renode.readthedocs.io/en/latest/advanced/writing-peripherals.html) das conexões da plataforma.
 
 O latch guarda o comando do mestre (Nesse exemplo um STM32), enquanto `externalLevels` guarda o sinal externo. `OnGPIO` altera um bit desse sinal e `UpdatePinLevels` publica o resultado nos conectores. O reset não solta um botão que continua pressionado externamente.
+
+`this.Log` envia mensagens pelo sistema de logs do Renode e as identifica com esta instância do periférico. Mudanças de estado usam `Debug`; leituras frequentes usam o nível mais detalhado `Noisy`, podendo permanecer ocultas durante a execução normal.
 
 **Verificação de compilação do PCF8574.cs, no Terminal:**
 
@@ -276,6 +284,22 @@ machine LoadPlatformDescription @platforms/pcf8574.repl
 ```
 
 `mach create` cria a máquina; `using sysbus` permite abreviar os nomes no Monitor; `LoadPlatformDescription` monta os dispositivos e conexões dos IOs descritas no REPL.
+
+### Inspecionar os logs do modelo
+
+Após carregar a plataforma, habilite mensagens `Debug` somente para esta instância no **Monitor**:
+
+```text
+logLevel 0 sysbus.pcf8574
+```
+
+O caminho `sysbus.pcf8574` vem da declaração `pcf8574:` no REPL. As verificações de botão e saída abaixo passarão a mostrar mensagens quando um GPIO externo mudar ou uma escrita I2C atualizar o latch. Para também visualizar toda leitura I2C, habilite o nível `Noisy`:
+
+```text
+logLevel -1 sysbus.pcf8574
+```
+
+O log por periférico é útil durante o desenvolvimento do modelo porque revela decisões internas sem alterar o firmware nem adicionar chamadas temporárias a `Console.WriteLine`.
 
 ### Verificar as entradas ao pressionar os botões
 
@@ -490,7 +514,9 @@ Isso verifica a montagem da plataforma. A CPU ainda não executou firmware; a co
 
 O firmware fornecido foi gerado a partir do STM32CubeMX para a placa **STM32F407G-DISC1**, MCU **STM32F407VGTx**, com HAL. O projeto completo está em [firmware](firmware), com o [arquivo CubeMX](firmware/pcf8574-demo.ioc) e o [main.c](firmware/Core/Src/main.c).
 
-A aplicação inicializa o port em `0xFF`, mantém P4..P7 liberados para entrada e alterna um LED a cada 250 ms, percorrendo P0..P3. A sequência acende P0, P1, P2, P3 e depois apaga P0, P1, P2, P3. Mudanças das entradas são impressas na USART2.
+A aplicação inicializa o port em `0xFF`, mantém P4..P7 liberados para entrada, consulta os botões a cada 200 ms e alterna um LED a cada segundo, percorrendo P0..P3. A sequência acende P0, P1, P2, P3 e depois apaga P0, P1, P2, P3. Mudanças dos LEDs e das entradas são impressas na USART2.
+
+Com os logs do modelo apresentados na seção 3, o nível `Debug` mostra a escrita do latch uma vez por segundo. O nível opcional `Noisy` também mostra as cinco leituras I2C por segundo usadas para consultar os botões.
 
 Os trechos abaixo já fazem parte do [main.c](firmware/Core/Src/main.c) fornecido; não é necessário adicioná-los para executar o ELF do tutorial.
 
@@ -511,9 +537,11 @@ As constantes do firmware definem o endereço do expansor e quais bits devem per
 ```c
 #define PCF_ADDRESS (0x20U << 1)
 #define INPUT_MASK 0xF0U
+#define BUTTON_POLL_INTERVAL_MS 200U
+#define LED_TOGGLE_INTERVAL_MS 1000U
 ```
 
-`INPUT_MASK` vale `11110000` em binário: mantém P4..P7 em `1` a cada escrita. P0..P3 recebem os níveis desejados dos LEDs. A HAL recebe o endereço de sete bits deslocado uma posição (`0x20 << 1`); no REPL, o endereço continua sendo `0x20`.
+`INPUT_MASK` vale `11110000` em binário: mantém P4..P7 em `1` a cada escrita. P0..P3 recebem os níveis desejados dos LEDs. As outras constantes deixam explícitos os dois períodos independentes. A HAL recebe o endereço de sete bits deslocado uma posição (`0x20 << 1`); no REPL, o endereço continua sendo `0x20`.
 
 ### Inicializar e acessar o expansor por I2C
 
@@ -549,7 +577,7 @@ static void validate_pcf8574(void)
 
 `0xFF` libera todos os pinos: os quatro LEDs começam apagados e os botões podem alterar os níveis de entrada. A conferência usa `0x0F` para verificar apenas P0..P3, pois um botão pressionado durante a inicialização pode legitimamente fazer P4..P7 retornar zero. `read_port` usa `HAL_I2C_Master_Receive` para receber um byte, chegando ao `Read` do modelo.
 
-### Alternar um LED a cada 250 ms
+### Alternar um LED a cada segundo
 
 Antes do `while`, o firmware prepara o estado dos LEDs e a referência de tempo:
 
@@ -558,45 +586,57 @@ Antes do `while`, o firmware prepara o estado dos LEDs e a referência de tempo:
 uint8_t ledLevels = 0x0FU;
 uint8_t nextLed = 0U;
 uint8_t previousInputs = 0xFFU;  // Sentinel: also print the first sample.
-uint32_t lastToggle = HAL_GetTick();
+uint32_t lastButtonPoll = HAL_GetTick();
+uint32_t lastLedToggle = HAL_GetTick();
 ```
 
 Dentro do laço, este bloco alterna um único pino por intervalo:
 
 <!-- tutorial-firmware-excerpt -->
 ```c
-if((uint32_t)(HAL_GetTick() - lastToggle) >= 250U)
+if((uint32_t)(now - lastLedToggle) >= LED_TOGGLE_INTERVAL_MS)
 {
-    lastToggle += 250U;
+    lastLedToggle += LED_TOGGLE_INTERVAL_MS;
     // Toggle ONE pin per step: P0, P1, P2, P3, then repeat.
-    ledLevels ^= (uint8_t)(1U << nextLed);
+    uint8_t toggledLed = nextLed;
+    ledLevels ^= (uint8_t)(1U << toggledLed);
     nextLed = (uint8_t)((nextLed + 1U) % 4U);
     // Never copy observed button lows back into the output latch.
     write_port((uint8_t)(INPUT_MASK | ledLevels));
+
+    char message[32];
+    snprintf(message, sizeof(message), "LED P%u=%s\r\n", (unsigned)toggledLed,
+        (ledLevels & (1U << toggledLed)) == 0U ? "ON" : "OFF");
+    print_line(message);
 }
 ```
 
-O XOR (`^=`) inverte somente o bit do LED selecionado; o módulo `% 4` percorre P0, P1, P2 e P3 repetidamente. Os bytes escritos começam em `0xFF` e seguem `0xFE`, `0xFC`, `0xF8`, `0xF0`: um LED adicional acende a cada passo. Depois seguem `0xF1`, `0xF3`, `0xF7`, `0xFF`, apagando um por vez.
+O XOR (`^=`) inverte somente o bit do LED selecionado; o módulo `% 4` percorre P0, P1, P2 e P3 repetidamente. Os bytes escritos começam em `0xFF` e seguem `0xFE`, `0xFC`, `0xF8`, `0xF0`: um LED adicional acende a cada passo. Depois seguem `0xF1`, `0xF3`, `0xF7`, `0xFF`, apagando um por vez. Como isso ocorre apenas uma vez por segundo, o firmware também imprime mensagens curtas como `LED P0=ON` sem poluir a UART.
 
 O OR com `INPUT_MASK` preserva P4..P7 liberados, pois os usamos como sensores do estado dos botões, logo não faz sentido setar diferentes niveis logicos desses pinos via firmware, apenas os mantemos como "entradas/sensores".
 
-### Ler os botões e imprimir mudanças
+### Consultar os botões a cada 200 ms
 
 Também dentro do `while`, a leitura separa os quatro bits de entrada:
 
 <!-- tutorial-firmware-excerpt -->
 ```c
-uint8_t inputs = (uint8_t)((read_port() >> 4) & 0x0FU);
-if(inputs != previousInputs)
+uint32_t now = HAL_GetTick();
+if((uint32_t)(now - lastButtonPoll) >= BUTTON_POLL_INTERVAL_MS)
 {
-    char message[48];
-    snprintf(message, sizeof(message), "INPUT P7..P4=0x%X\r\n", (unsigned)inputs);
-    print_line(message);
-    previousInputs = inputs;
+    lastButtonPoll += BUTTON_POLL_INTERVAL_MS;
+    uint8_t inputs = (uint8_t)((read_port() >> 4) & 0x0FU);
+    if(inputs != previousInputs)
+    {
+        char message[48];
+        snprintf(message, sizeof(message), "INPUT P7..P4=0x%X\r\n", (unsigned)inputs);
+        print_line(message);
+        previousInputs = inputs;
+    }
 }
 ```
 
-O deslocamento `>> 4` coloca P4..P7 nos quatro bits inferiores; a máscara `0x0F` mantém apenas esse grupo. `print_line` transmite pela USART2, e a comparação evita repetir mensagens enquanto as entradas não mudam. O valor inicial `previousInputs = 0xFF` garante que a primeira amostra seja impressa. O laço termina com `HAL_Delay(5U)`, permitindo consultar os botões entre as alternâncias dos LEDs, sem esperar 250 ms para cada leitura.
+`HAL_GetTick` permite que o laço faça uma leitura I2C a cada 200 ms, independentemente do temporizador dos LEDs. O deslocamento `>> 4` coloca P4..P7 nos quatro bits inferiores; a máscara `0x0F` mantém apenas esse grupo. `print_line` transmite pela USART2, e a comparação evita repetir mensagens enquanto as entradas não mudam. O valor inicial `previousInputs = 0xFF` garante que a primeira amostra seja impressa. O laço ainda termina com `HAL_Delay(5U)` para atender os dois temporizadores, mas não acessa o I2C em toda iteração.
 
 Isso fecha o caminho apresentado na seção 2: pressionar um botão chama `OnGPIO`, que altera `externalLevels`; como o bit correspondente de `outputLatch` permanece em `1`, o `Read` retorna o nível externo. Solto, o botão é lido como `1`; pressionado, como `0`.
 
@@ -645,14 +685,14 @@ Em um Monitor vazio, o equivalente é `include @scripts/demo.resc`.
 
 No **Monitor**, use uma sessão nova, sem executar `start` antes. Execute os blocos abaixo separadamente.
 
-Avance 270 ms de tempo virtual para inicializar o firmware e alcançar a primeira alternância:
+Avance 1,05 s de tempo virtual para inicializar o firmware e alcançar a primeira alternância do LED:
 
 <!-- tutorial-monitor -->
 ```text
-emulation RunFor "0.270"
+emulation RunFor "1.050"
 ```
 
-Na UART, confira a mensagem `PCF8574 ready` e `INPUT P7..P4=0xF`, com os botões soltos. Consulte o LED conectado a P0:
+Com os botões soltos, confira na UART `PCF8574 ready`, `INPUT P7..P4=0xF` e `LED P0=ON`. Consulte então o LED conectado a P0:
 
 <!-- tutorial-monitor -->
 ```text
@@ -672,7 +712,7 @@ Avance o tempo para entregar o sinal e permitir a leitura pelo firmware:
 
 <!-- tutorial-monitor -->
 ```text
-emulation RunFor "0.100"
+emulation RunFor "0.210"
 ```
 
 **Esperado na UART:** `INPUT P7..P4=0xE`. Consulte também o byte completo do modelo:
@@ -691,11 +731,11 @@ Solte o mesmo botão:
 sysbus.button4 Release
 ```
 
-Avance mais 100 ms:
+Avance mais 210 ms para que a próxima consulta dos botões observe a liberação:
 
 <!-- tutorial-monitor -->
 ```text
-emulation RunFor "0.100"
+emulation RunFor "0.210"
 ```
 
 **Esperado na UART:** `INPUT P7..P4=0xF`. Confira a leitura novamente:
@@ -705,7 +745,7 @@ emulation RunFor "0.100"
 python "print(list(monitor.Machine['sysbus.i2c1.pcf8574'].Read(1)))"
 ```
 
-**Esperado:** `[254]` (`0xFE`): P4 voltou a alto; LED0 permanece aceso. O tempo acumulado é 470 ms, ainda antes da segunda alternância.
+**Esperado:** `[254]` (`0xFE`): P4 voltou a alto; LED0 permanece aceso. O tempo acumulado é 1,47 s, ainda antes da segunda alternância do LED.
 
 `RunFor` executa o intervalo de tempo virtual solicitado e para. Para execução contínua, use `start`; para interromper, `pause`. Saia com `quit`.
 
@@ -758,7 +798,7 @@ O painel é específico deste exemplo. Usa o [servidor remoto de testes do Renod
 | Pressionar P4 | UART: `INPUT P7..P4=0xE` |
 | Manter P4 e pressionar P7 | UART: `INPUT P7..P4=0x6` |
 | Soltar ambos | UART termina em `INPUT P7..P4=0xF` |
-| Pausar e avançar 250 ms | Um LED muda de estado por passo |
+| Pausar e avançar 1 s | Um LED muda de estado e seu novo estado aparece na UART |
 
 O efeito de um botão acionado enquanto pausado aparece no próximo avanço. Encerre com `Ctrl+C` no terminal.
 

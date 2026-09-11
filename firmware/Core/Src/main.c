@@ -34,6 +34,8 @@
 /* USER CODE BEGIN PD */
 #define PCF_ADDRESS (0x20U << 1)
 #define INPUT_MASK 0xF0U
+#define BUTTON_POLL_INTERVAL_MS 200U
+#define LED_TOGGLE_INTERVAL_MS 1000U
 
 /* USER CODE END PD */
 
@@ -140,7 +142,8 @@ int main(void)
     uint8_t ledLevels = 0x0FU;
     uint8_t nextLed = 0U;
     uint8_t previousInputs = 0xFFU;  // Sentinel: also print the first sample.
-    uint32_t lastToggle = HAL_GetTick();
+    uint32_t lastButtonPoll = HAL_GetTick();
+    uint32_t lastLedToggle = HAL_GetTick();
 
   /* USER CODE END 2 */
 
@@ -151,23 +154,34 @@ int main(void)
     /* USER CODE END WHILE */
 
     /* USER CODE BEGIN 3 */
-        uint8_t inputs = (uint8_t)((read_port() >> 4) & 0x0FU);
-        if(inputs != previousInputs)
+        uint32_t now = HAL_GetTick();
+        if((uint32_t)(now - lastButtonPoll) >= BUTTON_POLL_INTERVAL_MS)
         {
-            char message[48];
-            snprintf(message, sizeof(message), "INPUT P7..P4=0x%X\r\n", (unsigned)inputs);
-            print_line(message);
-            previousInputs = inputs;
+            lastButtonPoll += BUTTON_POLL_INTERVAL_MS;
+            uint8_t inputs = (uint8_t)((read_port() >> 4) & 0x0FU);
+            if(inputs != previousInputs)
+            {
+                char message[48];
+                snprintf(message, sizeof(message), "INPUT P7..P4=0x%X\r\n", (unsigned)inputs);
+                print_line(message);
+                previousInputs = inputs;
+            }
         }
 
-        if((uint32_t)(HAL_GetTick() - lastToggle) >= 250U)
+        if((uint32_t)(now - lastLedToggle) >= LED_TOGGLE_INTERVAL_MS)
         {
-            lastToggle += 250U;
+            lastLedToggle += LED_TOGGLE_INTERVAL_MS;
             // Toggle ONE pin per step: P0, P1, P2, P3, then repeat.
-            ledLevels ^= (uint8_t)(1U << nextLed);
+            uint8_t toggledLed = nextLed;
+            ledLevels ^= (uint8_t)(1U << toggledLed);
             nextLed = (uint8_t)((nextLed + 1U) % 4U);
             // Never copy observed button lows back into the output latch.
             write_port((uint8_t)(INPUT_MASK | ledLevels));
+
+            char message[32];
+            snprintf(message, sizeof(message), "LED P%u=%s\r\n", (unsigned)toggledLed,
+                (ledLevels & (1U << toggledLed)) == 0U ? "ON" : "OFF");
+            print_line(message);
         }
         HAL_Delay(5U);
 

@@ -1,6 +1,7 @@
 using System;
 using System.Collections.Generic;
 using Antmicro.Renode.Core;
+using Antmicro.Renode.Logging;
 using Antmicro.Renode.Peripherals.I2C;
 
 namespace Antmicro.Renode.Peripherals.Tutorial
@@ -28,6 +29,7 @@ namespace Antmicro.Renode.Peripherals.Tutorial
         {
             outputLatch = 0xFF;
             UpdatePinLevels();
+            this.Log(LogLevel.Debug, "Reset: output latch restored to 0xFF.");
         }
 
         // II2CPeripheral requires Write, Read and FinishTransmission.
@@ -37,6 +39,7 @@ namespace Antmicro.Renode.Peripherals.Tutorial
             // Section 7.3.1 conflicts with that diagram; see the README note.
             foreach(var value in data)
             {
+                this.Log(LogLevel.Debug, "I2C write: output latch changed from 0x{0:X2} to 0x{1:X2}.", outputLatch, value);
                 outputLatch = value;
                 UpdatePinLevels();
             }
@@ -49,6 +52,7 @@ namespace Antmicro.Renode.Peripherals.Tutorial
             {
                 data[i] = EffectivePinLevels;
             }
+            this.Log(LogLevel.Noisy, "I2C read: returning 0x{0:X2} ({1} byte(s) requested).", EffectivePinLevels, count);
             return data;
         }
 
@@ -74,6 +78,8 @@ namespace Antmicro.Renode.Peripherals.Tutorial
                 externalLevels &= (byte)~mask;
             }
             UpdatePinLevels();
+            this.Log(LogLevel.Debug, "GPIO input: P{0} is now {1}; effective port level is 0x{2:X2}.",
+                number, value ? "high" : "low", EffectivePinLevels);
         }
 
         // Combine the master's command with the externally driven levels.
