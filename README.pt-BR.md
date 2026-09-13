@@ -23,6 +23,16 @@ STM32F407 --I2C1--> PCF8574 --P0..P3--> LEDs
 STM32 USART2 -----------------------> Terminal UART
 ```
 
+## Sumário
+
+- [1. Preparar o projeto](#1-preparar-o-projeto)
+- [2. Implementar o PCF8574](#2-implementar-o-pcf8574)
+- [3. Conectar o modelo a LEDs e botões](#3-conectar-o-modelo-a-leds-e-botões-com-arquivos-replresc)
+- [4. Conectar ao I2C do STM32](#4-conectar-ao-i2c-do-stm32)
+- [5. Executar o firmware STM32](#5-executar-o-firmware-stm32)
+- [6. Painel web](#6-painel-web-vibe-coded)
+- [Limitações e diagnóstico](#limitações-e-diagnóstico)
+
 ## 1. Preparar o projeto
 
 Requisitos: [Renode 1.16.1](https://renode.readthedocs.io/en/latest/introduction/installing.html), Python 3.10 ou superior.
