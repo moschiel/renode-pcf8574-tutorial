@@ -98,16 +98,16 @@ The implementation follows this subset of the [TI PCF8574 datasheet, revision K]
 
 | Behavior | Implementation | Reference |
 | --- | --- | --- |
-| Pins initially high | The latch starts at `0xFF` | Section 7.1 |
+| Pins initially high | The latch starts at `0xFF` | Datasheet section 7.1 |
 | Writing zero forces a low level | A zero in the latch dominates the observed level | Figure 7-2 |
 | Writing one releases the pin with a weak pull-up | An external signal can pull the level low | Figure 7-2 |
 | Reads observe the pins | Return the effective state, not only the latch | Figure 7-4 |
 | Successive-byte updates | Process every received byte | Figure 7-3 |
-| A2/A1/A0 tied low | Seven-bit I2C address `0x20` | Section 7.3.3 |
+| A2/A1/A0 tied low | Seven-bit I2C address `0x20` | Datasheet section 7.3.3 |
 
 There is no direction register: writing `1` allows a pin to be used as an input. In this digital model, the observed logic level is determined by `outputLatch & externalLevels`. Currents, resistances, and other electrical characteristics are not simulated.
 
-**Successive writes:** section 7.3.1 of the datasheet says that additional bytes in the same write transaction are ignored, while Figure 7-3 shows two bytes updating the port. The `foreach` below follows the diagram; this is a modeling choice in response to that discrepancy. The firmware sends one byte per transaction. Separate transactions can still update the port normally.
+**Successive writes:** datasheet section 7.3.1 says that additional bytes in the same write transaction are ignored, while Figure 7-3 shows two bytes updating the port. The `foreach` below follows the diagram; this is a modeling choice in response to that discrepancy. The firmware sends one byte per transaction. Separate transactions can still update the port normally.
 
 Create `models/PCF8574.cs`:
 
@@ -155,7 +155,7 @@ namespace Antmicro.Renode.Peripherals.Tutorial
         public void Write(byte[] data)
         {
             // Follow TI Rev. K Figure 7-3: each byte updates the port.
-            // Section 7.3.1 conflicts with that diagram; see the README note.
+            // Datasheet section 7.3.1 conflicts with that diagram; see the README note.
             foreach(var value in data)
             {
                 this.Log(LogLevel.Debug, "I2C write: output latch changed from 0x{0:X2} to 0x{1:X2}.", outputLatch, value);
@@ -483,7 +483,7 @@ In `platforms/pcf8574.repl`, replace **only the first line**, preserving `preini
 pcf8574: Tutorial.PCF8574 @ i2c1 0x20
 ```
 
-`@ i2c1` now registers the PCF8574 as a device on the **STM32 I2C1 controller**. `0x20` is the seven-bit I2C address selected for the PCF8574, corresponding to A2, A1, and A0 tied low. See section 7.3.3 of the [datasheet](https://www.ti.com/lit/ds/symlink/pcf8574.pdf).
+`@ i2c1` now registers the PCF8574 as a device on the **STM32 I2C1 controller**. `0x20` is the seven-bit I2C address selected for the PCF8574, corresponding to A2, A1, and A0 tied low. See datasheet section 7.3.3 in the [datasheet](https://www.ti.com/lit/ds/symlink/pcf8574.pdf).
 
 Update `scripts/platform.resc` to load the STM32 **before** the PCF8574 because `i2c1` must already exist:
 
@@ -541,7 +541,7 @@ The supplied firmware was generated with STM32CubeMX for the **STM32F407G-DISC1*
 
 The application initializes the port to `0xFF`, keeps P4..P7 released for input, polls the buttons every 200 ms, and toggles one LED every second while cycling through P0..P3. The sequence turns on P0, P1, P2, P3, then turns off P0, P1, P2, P3. LED and input changes are printed through USART2.
 
-With the model logging introduced in section 3, `Debug` shows the latch write once per second. The optional `Noisy` level also shows the five I2C reads performed per second while polling the buttons.
+With the model logging introduced in tutorial section 3, `Debug` shows the latch write once per second. The optional `Noisy` level also shows the five I2C reads performed per second while polling the buttons.
 
 The excerpts below are already part of the supplied [main.c](firmware/Core/Src/main.c); you do not need to add them to run the tutorial ELF.
 
