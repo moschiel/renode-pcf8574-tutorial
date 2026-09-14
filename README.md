@@ -28,10 +28,26 @@ STM32 USART2 -----------------------> UART terminal
 - [1. Prepare the project](#1-prepare-the-project)
 - [2. Implement the PCF8574](#2-implement-the-pcf8574)
 - [3. Connect the model to LEDs and buttons](#3-connect-the-model-to-leds-and-buttons-with-replresc-files)
+  - [3.1 What each declaration means](#31-what-each-declaration-means)
+  - [3.2 Inspect the model logs](#32-inspect-the-model-logs)
+  - [3.3 Check inputs by pressing the buttons](#33-check-inputs-by-pressing-the-buttons)
+  - [3.4 Check an output](#34-check-an-output)
 - [4. Connect to the STM32 I2C controller](#4-connect-to-the-stm32-i2c-controller)
+  - [4.1 Inspect the peripherals available on the STM32](#41-inspect-the-peripherals-available-on-the-stm32)
+  - [4.2 Register the PCF8574 with the controller](#42-register-the-pcf8574-with-the-controller)
+  - [4.3 Check the connection](#43-check-the-connection)
 - [5. Run the STM32 firmware](#5-run-the-stm32-firmware)
+  - [5.1 Use the pins as inputs and outputs](#51-use-the-pins-as-inputs-and-outputs)
+  - [5.2 Initialize and access the expander over I2C](#52-initialize-and-access-the-expander-over-i2c)
+  - [5.3 Toggle one LED every second](#53-toggle-one-led-every-second)
+  - [5.4 Poll the buttons every 200 ms](#54-poll-the-buttons-every-200-ms)
+  - [5.5 Override the SysTick configuration](#55-override-the-systick-configuration)
+  - [5.6 Load the binary](#56-load-the-binary)
+  - [5.7 Check the firmware](#57-check-the-firmware)
+  - [5.8 Rebuild with STM32CubeIDE (optional)](#58-rebuild-with-stm32cubeide-optional)
 - [6. Web panel](#6-web-panel-vibe-coded)
-- [Limitations and troubleshooting](#limitations-and-troubleshooting)
+- [7. Automated tests](#7-automated-tests-vibe-coded)
+- [8. Limitations and troubleshooting](#8-limitations-and-troubleshooting)
 
 ## 1. Prepare the project
 
@@ -268,7 +284,7 @@ button7: Miscellaneous.Button @ sysbus
     -> pcf8574@7
 ```
 
-### What each declaration means
+### 3.1 What each declaration means
 
 | Fragment | Meaning |
 | --- | --- |
@@ -294,7 +310,7 @@ machine LoadPlatformDescription @platforms/pcf8574.repl
 
 `mach create` creates the machine; `using sysbus` lets you shorten names in the Monitor; and `LoadPlatformDescription` assembles the devices and I/O connections described in the REPL.
 
-### Inspect the model logs
+### 3.2 Inspect the model logs
 
 Once the platform is loaded, enable `Debug` messages only for this instance in the **Monitor**:
 
@@ -310,7 +326,7 @@ logLevel -1 sysbus.pcf8574
 
 Per-peripheral logging is useful while developing a model because it exposes internal decisions without changing the firmware or adding temporary `Console.WriteLine` calls.
 
-### Check inputs by pressing the buttons
+### 3.3 Check inputs by pressing the buttons
 
 **Terminal:**
 
@@ -382,7 +398,7 @@ python "print(list(dev.Read(1)))"
 
 `Release` releases the same button; the following advance delivers a high level to the PCF8574. **The reading should return to `[255]` (`0xFF`)** without another latch write. This confirms the button path, GPIO connection, and state observed by the model.
 
-### Check an output
+### 3.4 Check an output
 
 In the **same Monitor session**, write directly to the model and then reset it:
 
@@ -409,7 +425,7 @@ using "platforms/cpus/stm32f4.repl"
 
 This definition provides the CPU and the STM32's internal peripherals, including the `i2c1` controller.
 
-### Inspect the peripherals available on the STM32
+### 4.1 Inspect the peripherals available on the STM32
 
 Before connecting the PCF8574, open an empty Renode session from a terminal in the tutorial root:
 
@@ -458,7 +474,7 @@ i2c1 (STM32F1_I2C)
 
 **Check:** `i2c1` should exist, with no `pcf8574` beneath it yet. Enter `quit` to close this inspection session before continuing.
 
-### Register the PCF8574 with the controller
+### 4.2 Register the PCF8574 with the controller
 
 In `platforms/pcf8574.repl`, replace **only the first line**, preserving `preinit` and all LED and button connections:
 
@@ -482,7 +498,7 @@ cpu PerformanceInMips 100
 
 `PerformanceInMips` configures the simulated CPU execution rate; it is not the SysTick clock.
 
-### Check the connection
+### 4.3 Check the connection
 
 **Terminal:**
 
@@ -529,7 +545,7 @@ With the model logging introduced in section 3, `Debug` shows the latch write on
 
 The excerpts below are already part of the supplied [main.c](firmware/Core/Src/main.c); you do not need to add them to run the tutorial ELF.
 
-### Use the pins as inputs and outputs
+### 5.1 Use the pins as inputs and outputs
 
 As implemented in [section 2](#2-implement-the-pcf8574), the PCF8574 has **quasi-bidirectional** pins and no direction register. There is no separate command for configuring `input` or `output`:
 
@@ -552,7 +568,7 @@ The firmware constants define the expander address and which bits must remain re
 
 `INPUT_MASK` is `11110000` in binary: it keeps P4..P7 at `1` on every write. P0..P3 receive the desired LED levels. The other constants make the two independent periods explicit. HAL takes the seven-bit address shifted left by one position (`0x20 << 1`); in the REPL, the address remains `0x20`.
 
-### Initialize and access the expander over I2C
+### 5.2 Initialize and access the expander over I2C
 
 The `write_port` function sends one byte through the STM32 I2C1 controller:
 
@@ -586,7 +602,7 @@ static void validate_pcf8574(void)
 
 `0xFF` releases every pin: all four LEDs start off, and the buttons can change the input levels. The check uses `0x0F` to inspect only P0..P3 because a button held during initialization may legitimately make a P4..P7 bit return zero. `read_port` uses `HAL_I2C_Master_Receive` to receive one byte, ultimately reaching the model's `Read` method.
 
-### Toggle one LED every second
+### 5.3 Toggle one LED every second
 
 Before the `while` loop, the firmware prepares the LED state and time reference:
 
@@ -624,7 +640,7 @@ XOR (`^=`) flips only the selected LED bit; modulo `% 4` cycles through P0, P1, 
 
 OR with `INPUT_MASK` keeps P4..P7 released because these pins are used as button inputs. Therefore, the firmware should not drive them to different logic levels.
 
-### Poll the buttons every 200 ms
+### 5.4 Poll the buttons every 200 ms
 
 Also inside the `while` loop, the read separates the four input bits:
 
@@ -651,7 +667,7 @@ This completes the path introduced in section 2: pressing a button calls `OnGPIO
 
 **What to check when running the steps below:** with no buttons pressed, UART should show `INPUT P7..P4=0xF`. Pressing only P4 should show `0xE`; releasing it should show `0xF` again. The LEDs should continue toggling independently of these changes.
 
-### Override the SysTick configuration
+### 5.5 Override the SysTick configuration
 
 The firmware configures SYSCLK and HCLK at **168 MHz**, while the Renode 1.16.1 `stm32f4.repl` platform defines `systickFrequency` as **72 MHz**. This parameter must be aligned so that firmware-calculated intervals have the expected duration in the simulation.
 
@@ -669,7 +685,7 @@ nvic:
 
 This adjustment is applied while creating the platform. Close the previous session and load a new one after changing the file. Section 3 had no CPU, and in section 4 the CPU was not running firmware yet; those tests did not depend on this frequency.
 
-### Load the binary
+### 5.6 Load the binary
 
 Create `scripts/demo.resc`:
 
@@ -682,7 +698,7 @@ showAnalyzer sysbus.usart2
 
 The script loads the platform with `include`, loads the **supplied precompiled firmware** from `firmware/demo.elf` with `LoadELF`, and opens the USART2 output with `showAnalyzer`. You do not need to compile the firmware to run this demo.
 
-### Check the firmware
+### 5.7 Check the firmware
 
 **Terminal:**
 
@@ -758,7 +774,7 @@ python "print(list(monitor.Machine['sysbus.i2c1.pcf8574'].Read(1)))"
 
 `RunFor` executes the requested virtual-time interval and stops. Use `start` for continuous execution and `pause` to interrupt it. Exit with `quit`.
 
-### Rebuild with STM32CubeIDE (optional)
+### 5.8 Rebuild with STM32CubeIDE (optional)
 
 To **edit the demo firmware**, import the original repository's `firmware` directory through `File > Import > STM32CubeMX/STM32CubeIDE Project`. Edit `Core/Src/main.c`, for example, and build `pcf8574-demo` in `Debug`.
 
@@ -811,7 +827,7 @@ The panel is specific to this example. It uses the [Renode remote test server](h
 
 The effect of a button operated while paused appears on the next step. Stop the panel with `Ctrl+C` in the terminal.
 
-## Automated tests (vibe-coded)
+## 7. Automated tests (vibe-coded)
 
 From the project directory:
 
@@ -821,7 +837,7 @@ python tests/check.py all
 
 Expect the lines `PASS model:` and `PASS firmware:`. The first test checks the isolated model; the second runs the firmware and checks LEDs, buttons, and UART.
 
-## Limitations and troubleshooting
+## 8. Limitations and troubleshooting
 
 The model does not implement `INT`, currents, short circuits, electrical I2C timing, or resolution of multiple drivers on the same pin. It is a functional digital simulation, not a complete electrical equivalent of the IC.
 
