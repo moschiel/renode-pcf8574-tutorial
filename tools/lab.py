@@ -7,7 +7,6 @@ from pathlib import Path
 import subprocess
 import tempfile
 import threading
-import time
 from urllib.parse import urlparse
 import webbrowser
 
@@ -23,21 +22,18 @@ class Lab:
         self.stop = threading.Event()
         renode.advance(.05)
         self.snapshot = renode.state()
+        renode.start()
 
     def work(self):
-        while not self.stop.is_set():
-            begin = time.monotonic()
+        while not self.stop.wait(.05):
             try:
                 with self.lock:
-                    if self.running:
-                        self.renode.advance(.025)
-                        self.snapshot = self.renode.state()
+                    self.snapshot = self.renode.state()
             except Exception as exc:
                 with self.lock:
                     self.error = str(exc)
-                    self.running = False
+                self.running = False
                 self.stop.set()
-            self.stop.wait(max(0, .025 - (time.monotonic() - begin)))
 
     def state(self):
         with self.lock:
@@ -51,10 +47,14 @@ class Lab:
             if action == 'button':
                 self.renode.button(body.get('pin'), body.get('pressed'))
             elif action == 'pause':
+                self.renode.pause()
                 self.running = False
             elif action == 'resume':
+                self.renode.start()
                 self.running = True
             elif action == 'step':
+                if self.running:
+                    self.renode.pause()
                 self.running = False
                 self.renode.advance(1.0)
             else:

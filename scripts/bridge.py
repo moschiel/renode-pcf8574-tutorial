@@ -22,6 +22,7 @@ uart.CharReceived += on_uart_byte
 def mc_lab_state():
     machine = monitor.Machine
     print(json.dumps({
+        'seconds': float(machine.ElapsedVirtualTime.TimeElapsed.TotalSeconds),
         'leds': [bool(machine['sysbus.led' + str(i)].State) for i in range(4)],
         'port': int(machine['sysbus.i2c1.pcf8574'].Read(1)[0]),
         'uart': list(uart_lines)

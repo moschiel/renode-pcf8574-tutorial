@@ -42,7 +42,6 @@ class TimeoutTransport(xmlrpc.client.Transport):
 class Renode:
     def __init__(self, executable=None, firmware=True):
         self.lock = threading.RLock()
-        self.seconds = 0.0
         self.buttons = [False] * 4
         self.process = None
         self.temp = tempfile.TemporaryDirectory(prefix='pcf-lab-')
@@ -93,7 +92,14 @@ class Renode:
     def advance(self, seconds):
         with self.lock:
             self.execute('emulation RunFor "%.6f"' % seconds)
-            self.seconds += seconds
+
+    def start(self):
+        with self.lock:
+            self.execute('start')
+
+    def pause(self):
+        with self.lock:
+            self.execute('pause')
 
     def button(self, pin, pressed):
         if pin not in range(4, 8) or type(pressed) is not bool:
@@ -105,7 +111,7 @@ class Renode:
     def state(self):
         with self.lock:
             state = json.loads(self.execute('lab_state').strip())
-            state.update(seconds=round(self.seconds, 3), buttons=list(self.buttons))
+            state.update(buttons=list(self.buttons))
             return state
 
     def close(self):
